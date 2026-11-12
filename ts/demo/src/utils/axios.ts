@@ -3,6 +3,7 @@ import { JWT_HOST_API } from "@/configs/auth";
 import { repositorioPastaAtivo } from "@/app/pages/ceo/memoria-inventario";
 import { organizacaoAtivaId } from "@/app/pages/ceo/repositorio-org/escopo";
 import { sessaoLocalAtiva, tokenArmazenado } from "@/utils/sessaoLocal";
+import { kindDaRotaDeIa, modeloAtual } from "@/utils/modeloAtual";
 
 const axiosInstance = axios.create({
   baseURL: JWT_HOST_API,
@@ -80,6 +81,25 @@ axiosInstance.interceptors.request.use((config) => {
   const token = tokenArmazenado();
   if (token) config.headers.set("Authorization", `Bearer ${token}`);
   else config.headers.delete("Authorization");
+
+  // Modelo escolhido no seletor da ação (SeletorModelo). Só nas rotas de ação
+  // de IA listadas em `kindDaRotaDeIa`; quem já manda `modelo` vence. Vai no
+  // corpo porque esses endpoints não usam DTO validado (exceto o chat, que
+  // declara o campo).
+  const kind =
+    config.method?.toLowerCase() === "post" && config.url
+      ? kindDaRotaDeIa(config.url)
+      : null;
+  const modelo = kind ? modeloAtual(kind) : undefined;
+  if (modelo) {
+    if (config.data instanceof FormData) {
+      if (!config.data.has("modelo")) config.data.append("modelo", modelo);
+    } else if (config.data == null) {
+      config.data = { modelo };
+    } else if (typeof config.data === "object" && !("modelo" in config.data)) {
+      config.data = { ...config.data, modelo };
+    }
+  }
 
   return config;
 });

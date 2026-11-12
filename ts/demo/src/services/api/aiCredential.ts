@@ -28,6 +28,8 @@ export interface AiCredential {
   keyLast4: string;
   status: "ativa" | "invalida";
   validatedAt: string | null;
+  /** Desligada pelo dono: guardada, mas fora das filas. */
+  ativa?: boolean;
   modelCount: number;
   /**
    * Só vem na resposta do cadastro: a chave foi salva sem que o provedor
@@ -180,4 +182,30 @@ export async function createAiCredential(
 
 export async function removeAiCredential(id: string): Promise<void> {
   await axios.delete(`/ai/credentials/${id}`);
+}
+
+export interface UpdateCredentialInput {
+  nome?: string;
+  apiKey?: string;
+  ativa?: boolean;
+}
+
+/** PATCH /ai/credentials/:id — renomear, trocar a chave, ativar/desativar. */
+export async function updateAiCredential(
+  id: string,
+  input: UpdateCredentialInput,
+): Promise<AiCredential> {
+  const { data } = await axios.patch<AiCredential>(
+    `/ai/credentials/${id}`,
+    input,
+  );
+  return data;
+}
+
+/** POST /ai/credentials/:id/validar — confere a chave de novo no provedor. */
+export async function revalidateAiCredential(id: string): Promise<AiCredential> {
+  const { data } = await axios.post<AiCredential>(
+    `/ai/credentials/${id}/validar`,
+  );
+  return data;
 }

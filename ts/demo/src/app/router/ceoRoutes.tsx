@@ -27,6 +27,7 @@ import ConversasHistorico from "@/app/pages/ceo/ConversasHistorico";
 import Documento from "@/app/pages/ceo/Documento";
 import Configuracoes from "@/app/pages/ceo/Configuracoes";
 import ConfiguracoesUsuario from "@/app/pages/ceo/ConfiguracoesUsuario";
+import Backoffice from "@/app/pages/ceo/backoffice/Backoffice";
 import Feed from "@/app/pages/ceo/Feed";
 import FeedDetail from "@/app/pages/ceo/FeedDetail";
 import BusinessPartnerInsights from "@/app/pages/ceo/Insights";
@@ -67,6 +68,7 @@ const pageBySlug: Record<string, RouteObject["Component"]> = {
   agentes: AgentesCatalogo,
   configuracoes: Configuracoes,
   "configuracoes-usuario": ConfiguracoesUsuario,
+  backoffice: Backoffice,
   documentos: Documentos,
   email: Email,
   slack: Slack,

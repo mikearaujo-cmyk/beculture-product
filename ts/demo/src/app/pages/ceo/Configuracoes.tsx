@@ -10,7 +10,7 @@ import { Button, Spinner } from "@/components/ui";
 import { getCurrentProduct } from "@/app/navigation/ceoOs";
 import { getTtsAtivo, setTtsAtivo } from "@/utils/beculturePrefs";
 import { fetchUsoTokensApi, type UsoTokens } from "@/services/api/uso";
-import { AiConnectionCard } from "./AiConnectionCard";
+import { AiConnectionCard, FranquiaPlanoSection } from "./AiConnectionCard";
 import { AparenciaSection } from "./AparenciaSection";
 import { SectionCard, ToggleRow } from "./configuracoes-ui";
 import { RegrasSection } from "./Memoria";
@@ -135,22 +135,20 @@ export default function Configuracoes() {
                     organização se configuram, em quatro grupos:{" "}
                     <strong>Geral</strong> (aparência, as identidades visuais e
                     os templates de apresentação da organização, voz e o
-                    Repositório, a base de conhecimento
-                    compartilhada da organização),{" "}
-                    <strong>IA</strong> (as orientações que a IA segue nas
-                    respostas, os agentes da organização chamados por
+                    Repositório, a base de conhecimento compartilhada da
+                    organização), <strong>IA</strong> (as orientações que a IA
+                    segue nas respostas, os agentes da organização chamados por
                     @menção no Assistente e a conexão dos provedores de IA da
-                    empresa),{" "}
-                    <strong>Estrutura</strong> (as pessoas da organização, as
-                    áreas e cargos que ocupam e a hierarquia entre elas) e{" "}
-                    <strong>Acesso</strong> (as roles, que dizem o que cada
-                    pessoa pode fazer).
+                    empresa), <strong>Estrutura</strong> (as pessoas da
+                    organização, as áreas e cargos que ocupam e a hierarquia
+                    entre elas) e <strong>Acesso</strong> (as roles, que dizem o
+                    que cada pessoa pode fazer).
                   </p>
                   <p>
                     As preferências de aparência e voz ficam salvas só neste
                     navegador. As identidades visuais, os templates e os
-                    documentos do Repositório são a exceção: pertencem à organização e valem
-                    para todo mundo nela.
+                    documentos do Repositório são a exceção: pertencem à
+                    organização e valem para todo mundo nela.
                   </p>
                 </>
               ),
@@ -266,10 +264,12 @@ function IaSection() {
     <div className="space-y-6">
       <SectionCard
         titulo="IA & API"
-        descricao="Conecte os provedores de IA da sua empresa e defina a prioridade dos modelos por modalidade."
+        descricao="Provedores e modelos de IA disponíveis para a conta, de onde vêm as credenciais e a prioridade dos modelos por modalidade."
       >
         <AiConnectionCard />
       </SectionCard>
+
+      <FranquiaPlanoSection />
 
       {!consumoOculto && (
         <SectionCard

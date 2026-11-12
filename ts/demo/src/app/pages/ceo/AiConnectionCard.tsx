@@ -17,6 +17,13 @@ import {
   PlusIcon,
   ShieldCheckIcon,
   TrashIcon,
+  SparklesIcon,
+  UserIcon,
+  BuildingOffice2Icon,
+  PencilSquareIcon,
+  ArrowPathIcon,
+  PauseCircleIcon,
+  PlayCircleIcon,
 } from "@heroicons/react/24/outline";
 import {
   Dialog,
@@ -53,11 +60,22 @@ import {
   getAiProviders,
   listAiCredentials,
   removeAiCredential,
+  revalidateAiCredential,
+  updateAiCredential,
   PROVEDORES_PADRAO,
   type AiCredential,
   type AiModality,
   type CatalogProvider,
 } from "@/services/api/aiCredential";
+import {
+  ROTULO_ORIGEM,
+  ROTULO_PLANO,
+  useResumoContaIa,
+  type OrigemCredencial,
+  type ResumoContaIa,
+} from "@/services/api/modalidade";
+import { EstadoIaNaoConfigurada } from "./ia/EstadoIaNaoConfigurada";
+import { SectionCard } from "./configuracoes-ui";
 import {
   addAiConnection,
   listAiConnections,
@@ -256,7 +274,61 @@ function provedoresDaModalidade(
  * Configuração de IA do tenant: primeiro as chaves dos provedores, depois a
  * prioridade dos modelos em cada modalidade. A chave nunca volta do servidor.
  */
-export function AiConnectionCard() {
+/**
+ * IA & API — central de integrações com provedores de IA. A estrutura é a
+ * mesma para todas as contas; o que muda por modalidade são os dados e as
+ * ações (as regras são validadas também no backend):
+ *   B2C BeCulture → modelos gerenciados pela BeCulture, somente leitura
+ *   B2C BYOK      → chaves do próprio usuário, gestão completa
+ *   B2B           → chaves da organização, gestão por quem administra
+ *
+ * `onAlteracao` avisa quem embute o card (ex.: o onboarding) que chaves ou
+ * modelos mudaram, para recalcular a prontidão.
+ */
+export function AiConnectionCard({
+  onAlteracao,
+  exibir = "tudo",
+}: {
+  onAlteracao?: () => void;
+  /** Onboarding mostra uma parte por etapa; Configurações mostra tudo. */
+  exibir?: "tudo" | "chaves" | "modelos";
+} = {}) {
+  const conta = useResumoContaIa();
+  const { recarregar } = conta;
+  const avisarAlteracao = useCallback(() => {
+    void recarregar();
+    onAlteracao?.();
+  }, [recarregar, onAlteracao]);
+
+  if (conta.carregando && !conta.resumo) {
+    return (
+      <p className="dark:text-dark-300 text-sm text-gray-400">Carregando…</p>
+    );
+  }
+  if (conta.resumo?.modalidade === "beculture") {
+    return <ModelosGerenciadosBeCulture resumo={conta.resumo} />;
+  }
+  return (
+    <ChavesProprias
+      resumo={conta.resumo}
+      onAlteracao={avisarAlteracao}
+      exibir={exibir}
+    />
+  );
+}
+
+function ChavesProprias({
+  resumo,
+  onAlteracao,
+  exibir,
+}: {
+  /** Nulo se o servidor não respondeu: cai no comportamento de antes. */
+  resumo: ResumoContaIa | null;
+  onAlteracao: () => void;
+  exibir: "tudo" | "chaves" | "modelos";
+}) {
+  const podeGerenciar = resumo ? resumo.podeGerenciarChaves : true;
+  const origem: OrigemCredencial = resumo?.origemCredenciais ?? "organizacao";
   // Começa no espelho local do catálogo (ver `PROVEDORES_PADRAO`): o select de
   // provedor já nasce preenchido e a resposta do servidor só o substitui.
   const [providers, setProviders] =
@@ -292,9 +364,13 @@ export function AiConnectionCard() {
     };
   }, [tentativa]);
 
-  const onCredsChange = useCallback((lista: AiCredential[]) => {
-    setCreds(lista);
-  }, []);
+  const onCredsChange = useCallback(
+    (lista: AiCredential[]) => {
+      setCreds(lista);
+      onAlteracao();
+    },
+    [onAlteracao],
+  );
 
   if (loading) {
     return (
@@ -304,58 +380,307 @@ export function AiConnectionCard() {
 
   return (
     <div>
-      <KeysSection
-        providers={providers}
-        creds={creds}
-        onCredsChange={onCredsChange}
-        erroCarga={erroChaves}
-        onRetry={() => setTentativa((n) => n + 1)}
-      />
-
+      {exibir === "tudo" && <OrigemCredenciais origem={origem} />}
+      {resumo && (
+        <NotaPrototipo className="mb-6">
+          as chaves e modelos desta tela são demonstrativos — aceitam valores de
+          exemplo, não são validados no provedor e não executam chamadas. O
+          processamento real (assistente e demais recursos de IA) usa a chave de
+          Backoffice → Configuração de API
+          {resumo.execucao === "indisponivel" &&
+            ", que ainda não foi configurada"}
+          .
+        </NotaPrototipo>
+      )}
+      {exibir === "tudo" &&
+        resumo &&
+        resumo.prontidao !== "pronta" &&
+        !erroChaves && (
+          <EstadoIaNaoConfigurada
+            className="mb-6"
+            prontidao={resumo.prontidao}
+            modalidade={resumo.modalidade}
+            podeAdministrar={resumo.podeAdministrarIa}
+          />
+        )}
+      {exibir !== "modelos" && (
+        <KeysSection
+          providers={providers}
+          creds={creds}
+          onCredsChange={onCredsChange}
+          erroCarga={erroChaves}
+          onRetry={() => setTentativa((n) => n + 1)}
+          podeGerenciar={podeGerenciar}
+          origem={origem}
+        />
+      )}
       {/* Subseção irmã de "Chaves de API": mesmo título <h4>, mesma ausência de
           régua abaixo dele. O corte entre as duas é o respiro de mt-12. O
           `divide-y` envolve SÓ as modalidades — com o título dentro dele, a
           primeira borda caía entre o título e "Texto" e fazia o título parecer
           mais um item da lista. */}
+      {exibir !== "chaves" && (
+        <div className={exibir === "modelos" ? "" : "mt-12"}>
+          <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
+            Modelos e Prioridades
+          </h4>
+          {/* Descrição fixa, como em "Chaves de API". A linha de "comece por aqui"
+            só entra sem chave cadastrada, quando as modalidades ficam vazias. */}
+          <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+            Escolha quais modelos atendem cada modalidade e em que ordem devem
+            ser usados.
+            {creds.length === 0 &&
+              " Adicione uma chave de API para começar a configurar seus modelos."}
+          </p>
+          {!podeGerenciar && (
+            <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
+              Somente quem administra a IA da organização pode alterar os
+              modelos disponíveis para os membros.
+            </p>
+          )}
+          <div
+            aria-disabled={!podeGerenciar}
+            className={clsx(
+              "dark:divide-dark-500 mt-4 divide-y divide-gray-200",
+              !podeGerenciar && "pointer-events-none opacity-60",
+            )}
+          >
+            {MODALITIES.map((m) => (
+              <section key={m.id} className="py-5 first:pt-0 last:pb-0">
+                <ModalityPanel
+                  modality={m}
+                  providers={providers}
+                  creds={creds}
+                  semChaves={creds.length === 0}
+                  onModelCount={(credentialId, delta) => {
+                    setCreds((prev) =>
+                      prev.map((c) =>
+                        c.id === credentialId
+                          ? {
+                              ...c,
+                              modelCount: Math.max(0, c.modelCount + delta),
+                            }
+                          : c,
+                      ),
+                    );
+                    onAlteracao();
+                  }}
+                />
+              </section>
+            ))}
+          </div>
+        </div>
+      )}{" "}
+    </div>
+  );
+}
+
+/** Quem administra as credenciais e quem paga o uso — sempre visível no topo. */
+function OrigemCredenciais({ origem }: { origem: OrigemCredencial }) {
+  const textos: Record<OrigemCredencial, string> = {
+    plataforma:
+      "A BeCulture fornece e administra as credenciais. O uso está incluído no plano, sujeito às franquias.",
+    usuario:
+      "As chaves são suas. O uso é cobrado pelo provedor diretamente a você — a BeCulture não cobra tokens.",
+    organizacao:
+      "As chaves são da organização e ficam isoladas dela. O uso é cobrado pelo provedor à organização — a licença SaaS não depende de tokens.",
+  };
+  return (
+    <div className="dark:border-dark-500 mb-6 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 px-4 py-3">
+      <BadgeOrigem origem={origem} />
+      <p className="dark:text-dark-300 min-w-0 flex-1 text-xs text-gray-500">
+        {textos[origem]}
+      </p>
+    </div>
+  );
+}
+
+export function BadgeOrigem({ origem }: { origem: OrigemCredencial }) {
+  const cor: Record<OrigemCredencial, string> = {
+    plataforma: "bg-primary-500/15 text-primary-700 dark:text-primary-300",
+    usuario: "bg-info/10 text-info",
+    organizacao: "bg-secondary/10 text-secondary dark:text-secondary-light",
+  };
+  const Icon =
+    origem === "plataforma"
+      ? SparklesIcon
+      : origem === "usuario"
+        ? UserIcon
+        : BuildingOffice2Icon;
+  return (
+    <span
+      className={clsx(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+        cor[origem],
+      )}
+    >
+      <Icon className="size-3.5" />
+      {ROTULO_ORIGEM[origem]}
+    </span>
+  );
+}
+
+/**
+ * B2C com modelos BeCulture: MESMA anatomia da tela BYOK ("Chaves de API" +
+ * "Modelos e Prioridades", mesmas listas e cabeçalhos de modalidade), só que
+ * somente leitura. Sem chave própria, sem provedor externo, sem
+ * desativar/excluir/reordenar o que é gerenciado pela plataforma. Os dados vêm
+ * do catálogo publicado no Backoffice, sem depender de chave do usuário.
+ */
+function ModelosGerenciadosBeCulture({ resumo }: { resumo: ResumoContaIa }) {
+  const modelos = resumo.modelosPlataforma;
+  // Mesmas chaves cadastradas em Backoffice → Modelos BeCulture (ativas e com
+  // modelo disponível). O valor da chave nunca é exibido.
+  const chaves = resumo.chavesPlataforma ?? [];
+
+  return (
+    <div>
+      {/* Mesma seção "Chaves de API" do BYOK, somente leitura. */}
+      <section>
+        <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
+          Chaves de API
+        </h4>
+        <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+          As chaves de API são fornecidas e administradas pela BeCulture. Não é
+          preciso — nem possível — cadastrar chaves próprias neste plano.
+        </p>
+
+        {chaves.length === 0 ? (
+          <div className="dark:border-dark-500 dark:bg-dark-600 mt-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
+            <p className="dark:text-dark-100 text-sm font-medium text-gray-700">
+              Nenhuma chave disponível ainda
+            </p>
+            <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+              As chaves aparecem aqui assim que a BeCulture disponibilizar
+              modelos para você.
+            </p>
+          </div>
+        ) : (
+          <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 mt-4 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
+            {chaves.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center gap-3 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
+                    {c.providerNome}
+                    {c.nome && (
+                      <span className="dark:text-dark-300 font-normal text-gray-500">
+                        {" "}
+                        · {c.nome}
+                      </span>
+                    )}
+                  </p>
+                  <p className="dark:text-dark-300 mt-0.5 text-xs text-gray-400">
+                    {c.modelos}{" "}
+                    {c.modelos === 1
+                      ? "modelo conectado"
+                      : "modelos conectados"}
+                    <span className="mx-1.5">·</span>
+                    {listar(
+                      MODALITIES.filter((m) => c.kinds.includes(m.id)).map(
+                        (m) => m.label,
+                      ),
+                    )}
+                  </p>
+                </div>
+                <BadgeOrigem origem="plataforma" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {/* Mesma seção "Modelos e Prioridades" do BYOK, somente leitura. */}
       <div className="mt-12">
         <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
           Modelos e Prioridades
         </h4>
-        {/* Descrição fixa, como em "Chaves de API". A linha de "comece por aqui"
-            só entra sem chave cadastrada, quando as modalidades ficam vazias. */}
         <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-          Escolha quais modelos atendem cada modalidade e em que ordem devem ser
-          usados.
-          {creds.length === 0 &&
-            " Adicione uma chave de API para começar a configurar seus modelos."}
+          Modelos que atendem cada modalidade e a ordem em que são usados,
+          definidos pela BeCulture.
         </p>
         <div className="dark:divide-dark-500 mt-4 divide-y divide-gray-200">
-          {MODALITIES.map((m) => (
-            <section key={m.id} className="py-5 first:pt-0 last:pb-0">
-              <ModalityPanel
-                modality={m}
-                providers={providers}
-                creds={creds}
-                semChaves={creds.length === 0}
-                onModelCount={(credentialId, delta) =>
-                  setCreds((prev) =>
-                    prev.map((c) =>
-                      c.id === credentialId
-                        ? {
-                            ...c,
-                            modelCount: Math.max(0, c.modelCount + delta),
-                          }
-                        : c,
-                    ),
-                  )
-                }
-              />
-            </section>
-          ))}
+          {MODALITIES.map((m) => {
+            const lista = modelos.filter((x) => x.kind === m.id);
+            return (
+              <section key={m.id} className="py-5 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2">
+                  <span className="bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400 grid size-7 shrink-0 place-items-center rounded-lg">
+                    <m.icon className="size-4.5" />
+                  </span>
+                  <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
+                    {m.label}
+                  </h4>
+                  {lista.length > 0 && (
+                    <span className="bg-success/10 text-success inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
+                      <CheckCircleIcon className="size-3.5" />
+                      Disponível
+                      {lista.length > 1 && ` · ${lista.length} modelos`}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  {lista.length > 0 ? (
+                    <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
+                      {lista.map((x, i) => (
+                        <li
+                          key={x.id}
+                          className="relative flex flex-wrap items-center gap-3 px-3 py-2.5"
+                        >
+                          <span
+                            className={clsx(
+                              "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                              i === 0
+                                ? "bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
+                                : "dark:bg-dark-500 dark:text-dark-200 bg-gray-200 text-gray-600",
+                            )}
+                          >
+                            {i === 0 ? "1 · Principal" : i + 1}
+                          </span>
+                          <div className="min-w-0 flex-1 text-sm">
+                            <span className="dark:text-dark-100 font-medium text-gray-700">
+                              {x.rotulo}
+                            </span>
+                            <span className="dark:text-dark-300 ml-2 text-gray-400">
+                              {x.providerNome}
+                              {x.limiteTokensCiclo !== null &&
+                                ` · limite ${formatarTokens(x.limiteTokensCiclo)} tokens/ciclo`}
+                            </span>
+                          </div>
+                          <BadgeOrigem origem="plataforma" />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="dark:border-dark-500 dark:bg-dark-600 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
+                      <p className="dark:text-dark-100 text-sm font-medium text-gray-700">
+                        Nenhum modelo disponível
+                      </p>
+                      <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+                        Seu plano ainda não inclui modelos de{" "}
+                        {m.label.toLowerCase()}.
+                      </p>
+                    </div>
+                  )}
+                  {lista.length > 1 && (
+                    <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
+                      Se um modelo falhar, o próximo assume automaticamente.
+                    </p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </div>
-      </div>
+      </div>{" "}
     </div>
   );
+}
+
+function formatarTokens(n: number): string {
+  return n.toLocaleString("pt-BR");
 }
 
 function KeysSection({
@@ -364,6 +689,8 @@ function KeysSection({
   onCredsChange,
   erroCarga,
   onRetry,
+  podeGerenciar,
+  origem,
 }: {
   providers: CatalogProvider[];
   creds: AiCredential[];
@@ -371,8 +698,29 @@ function KeysSection({
   /** Listagem falhou: a seção mostra o motivo em vez do estado vazio. */
   erroCarga: string | null;
   onRetry: () => void;
+  /** Sem permissão (ou plano BeCulture): lista só para leitura. */
+  podeGerenciar: boolean;
+  origem: OrigemCredencial;
 }) {
   const [modalOpen, modal] = useDisclosure(false);
+  const [editando, setEditando] = useState<AiCredential | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+
+  const substituir = (c: AiCredential) => {
+    onCredsChange(creds.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
+    setAviso(c.aviso ?? null);
+  };
+
+  const executar = async (id: string, acao: () => Promise<AiCredential>) => {
+    setOcupado(id);
+    try {
+      substituir(await acao());
+    } catch (err) {
+      setAviso(errMessage(err));
+    } finally {
+      setOcupado(null);
+    }
+  };
   const [toDelete, setToDelete] = useState<AiCredential | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteState, setDeleteState] = useState<
@@ -409,8 +757,11 @@ function KeysSection({
         Chaves de API
       </h4>
       <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-        Conecte os provedores de IA utilizados pela sua empresa. As chaves são
-        armazenadas de forma segura e nunca são exibidas por completo.
+        {origem === "usuario"
+          ? "Conecte suas chaves de provedores de IA. Você pode ter várias, editar, desativar e remover."
+          : "Conecte os provedores de IA utilizados pela organização. Os membros usam os modelos liberados por ela."}{" "}
+        As chaves são armazenadas de forma segura e nunca são exibidas por
+        completo.
       </p>
 
       {aviso && (
@@ -434,6 +785,11 @@ function KeysSection({
         // se há chave, e oferecer "Adicionar chave" convidaria a cadastrar uma
         // segunda vez a que já está no servidor.
         <FalhaDeCarga mensagem={erroCarga} onRetry={onRetry} />
+      ) : !podeGerenciar && creds.length === 0 ? (
+        <p className="dark:text-dark-300 mt-4 text-sm text-gray-400">
+          Nenhuma chave cadastrada. Somente quem administra a IA da organização
+          pode conectar provedores.
+        </p>
       ) : creds.length === 0 ? (
         // Sem chave, só o botão: a descrição da seção logo acima já diz o que
         // são estas chaves, e a caixa cinza só repetia isso em volta dele.
@@ -483,24 +839,45 @@ function KeysSection({
                     </span>
                   )
                 )}
-                <KeyMenu
-                  onRemove={() => {
-                    setDeleteState("pending");
-                    setToDelete(c);
-                  }}
-                />
+                {c.ativa === false && (
+                  <span className="dark:bg-dark-500 dark:text-dark-200 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500">
+                    desativada
+                  </span>
+                )}
+                <BadgeOrigem origem={origem} />
+                {podeGerenciar && (
+                  <KeyMenu
+                    ocupado={ocupado === c.id}
+                    ativa={c.ativa !== false}
+                    onEdit={() => setEditando(c)}
+                    onRevalidate={() =>
+                      void executar(c.id, () => revalidateAiCredential(c.id))
+                    }
+                    onToggle={() =>
+                      void executar(c.id, () =>
+                        updateAiCredential(c.id, { ativa: c.ativa === false }),
+                      )
+                    }
+                    onRemove={() => {
+                      setDeleteState("pending");
+                      setToDelete(c);
+                    }}
+                  />
+                )}
               </li>
             ))}
           </ul>
-          <Button
-            variant="outlined"
-            color="primary"
-            className="mt-3 h-8 gap-1.5 text-xs"
-            onClick={modal.open}
-          >
-            <PlusIcon className="size-4" />
-            Adicionar chave
-          </Button>
+          {podeGerenciar && (
+            <Button
+              variant="outlined"
+              color="primary"
+              className="mt-3 h-8 gap-1.5 text-xs"
+              onClick={modal.open}
+            >
+              <PlusIcon className="size-4" />
+              Adicionar chave
+            </Button>
+          )}
         </>
       )}
 
@@ -509,6 +886,17 @@ function KeysSection({
         onClose={modal.close}
         providers={providers}
         onCreated={onCreated}
+      />
+
+      <EditKeyModal
+        key={editando?.id ?? "nenhuma"}
+        cred={editando}
+        providers={providers}
+        onClose={() => setEditando(null)}
+        onSaved={(c) => {
+          substituir(c);
+          setEditando(null);
+        }}
       />
 
       <ConfirmModal
@@ -544,14 +932,38 @@ function KeysSection({
   );
 }
 
-function KeyMenu({ onRemove }: { onRemove: () => void }) {
+function KeyMenu({
+  onRemove,
+  onEdit,
+  onRevalidate,
+  onToggle,
+  ativa,
+  ocupado,
+}: {
+  onRemove: () => void;
+  onEdit: () => void;
+  onRevalidate: () => void;
+  onToggle: () => void;
+  ativa: boolean;
+  ocupado: boolean;
+}) {
+  const itemClasse = (focus: boolean) =>
+    clsx(
+      "dark:text-dark-100 flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm text-gray-700 transition-colors",
+      focus && "dark:bg-dark-600 bg-gray-100",
+    );
   return (
     <Menu as="div" className="relative shrink-0">
       <MenuButton
         aria-label="Ações da chave"
+        disabled={ocupado}
         className="dark:text-dark-300 dark:hover:bg-dark-500 dark:hover:text-dark-100 grid size-7 place-items-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
       >
-        <EllipsisVerticalIcon className="size-5" />
+        {ocupado ? (
+          <ArrowPathIcon className="size-4 animate-spin" />
+        ) : (
+          <EllipsisVerticalIcon className="size-5" />
+        )}
       </MenuButton>
       <Transition
         as={MenuItems}
@@ -564,6 +976,46 @@ function KeyMenu({ onRemove }: { onRemove: () => void }) {
         leaveTo="opacity-0 translate-y-1"
         className="dark:bg-dark-750 dark:border-dark-500 z-100 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg shadow-gray-200/60 outline-hidden dark:shadow-none"
       >
+        <MenuItem>
+          {({ focus }) => (
+            <button
+              type="button"
+              onClick={onEdit}
+              className={itemClasse(focus)}
+            >
+              <PencilSquareIcon className="size-4" />
+              Editar
+            </button>
+          )}
+        </MenuItem>
+        <MenuItem>
+          {({ focus }) => (
+            <button
+              type="button"
+              onClick={onRevalidate}
+              className={itemClasse(focus)}
+            >
+              <ArrowPathIcon className="size-4" />
+              Revalidar
+            </button>
+          )}
+        </MenuItem>
+        <MenuItem>
+          {({ focus }) => (
+            <button
+              type="button"
+              onClick={onToggle}
+              className={itemClasse(focus)}
+            >
+              {ativa ? (
+                <PauseCircleIcon className="size-4" />
+              ) : (
+                <PlayCircleIcon className="size-4" />
+              )}
+              {ativa ? "Desativar" : "Ativar"}
+            </button>
+          )}
+        </MenuItem>
         <MenuItem>
           {({ focus }) => (
             <button
@@ -581,6 +1033,125 @@ function KeyMenu({ onRemove }: { onRemove: () => void }) {
         </MenuItem>
       </Transition>
     </Menu>
+  );
+}
+
+/** Editar uma chave: renomear e/ou trocar o valor (revalida no servidor). */
+function EditKeyModal({
+  cred,
+  providers,
+  onClose,
+  onSaved,
+}: {
+  cred: AiCredential | null;
+  providers: CatalogProvider[];
+  onClose: () => void;
+  onSaved: (c: AiCredential) => void;
+}) {
+  // Estado inicial vem da chave; o pai troca a `key` a cada chave editada.
+  const [nome, setNome] = useState(cred?.nome ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const salvar = async () => {
+    if (!cred) return;
+    setSaving(true);
+    setError(null);
+    try {
+      onSaved(
+        await updateAiCredential(cred.id, {
+          nome,
+          apiKey: apiKey.trim() || undefined,
+        }),
+      );
+    } catch (err) {
+      setError(errMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Transition appear show={!!cred} as={Fragment}>
+      <Dialog
+        as="div"
+        className="fixed inset-0 z-100 flex flex-col items-center justify-center overflow-hidden px-4 py-6 sm:px-5"
+        onClose={() => {
+          if (!saving) onClose();
+        }}
+      >
+        <TransitionChild
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="absolute inset-0 bg-gray-900/50 transition-opacity dark:bg-black/40" />
+        </TransitionChild>
+        <TransitionChild
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <DialogPanel className="scrollbar-sm dark:bg-dark-700 relative w-full max-w-md overflow-y-auto rounded-lg bg-white px-5 py-6">
+            <DialogTitle className="dark:text-dark-100 text-base font-semibold text-gray-800">
+              Editar chave
+            </DialogTitle>
+            <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+              {cred ? nomeProvedor(providers, cred.provider) : ""} · ••••
+              {cred?.keyLast4}
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm">
+                <span className="dark:text-dark-200 mb-1 block font-medium text-gray-600">
+                  Nome da conexão
+                </span>
+                <input
+                  type="text"
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  maxLength={80}
+                  className="form-input dark:border-dark-450 dark:bg-dark-700 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="dark:text-dark-200 mb-1 block font-medium text-gray-600">
+                  Nova chave de API
+                  <span className="ml-1 font-normal text-gray-400">
+                    (deixe vazio para manter a atual)
+                  </span>
+                </span>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-••••••••••••"
+                  autoComplete="off"
+                  className="form-input dark:border-dark-450 dark:bg-dark-700 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+            {error && <p className="text-error mt-3 text-sm">{error}</p>}
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button variant="outlined" onClick={onClose} disabled={saving}>
+                Cancelar
+              </Button>
+              <Button color="primary" onClick={salvar} disabled={saving}>
+                {saving ? "Salvando…" : "Salvar"}
+              </Button>
+            </div>
+          </DialogPanel>
+        </TransitionChild>
+      </Dialog>
+    </Transition>
   );
 }
 
@@ -1261,5 +1832,54 @@ function ModelRow({
 
       {edge && <DropIndicator edge={edge} />}
     </li>
+  );
+}
+
+/** Aviso de comportamento exclusivo do protótipo (não é regra do produto). */
+function NotaPrototipo({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      className={clsx(
+        "dark:border-dark-500 dark:text-dark-300 mt-3 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500",
+        className,
+      )}
+    >
+      <span className="font-semibold">Apenas no protótipo:</span> {children}
+    </p>
+  );
+}
+
+/**
+ * Franquia do plano B2C BeCulture — container próprio, abaixo do "IA & API"
+ * em Configurações. Só existe para contas com modelos BeCulture (BYOK e B2B
+ * não têm franquia da BeCulture).
+ */
+export function FranquiaPlanoSection() {
+  const { resumo } = useResumoContaIa();
+  const consumo = resumo?.modalidade === "beculture" ? resumo.consumo : null;
+  if (!consumo) return null;
+  const plano = resumo?.planoIa ? ROTULO_PLANO[resumo.planoIa] : null;
+  return (
+    <SectionCard
+      titulo="Franquia do plano"
+      descricao={`Consumo de IA incluído no plano${plano ? ` ${plano}` : ""} neste ciclo.`}
+    >
+      <p className="dark:text-dark-200 text-sm text-gray-600">
+        {formatarTokens(consumo.total)} tokens usados neste ciclo
+        {consumo.franquiaGlobalTokens !== null
+          ? ` de ${formatarTokens(consumo.franquiaGlobalTokens)} da franquia.`
+          : " · sem franquia global definida (valem os limites por modelo)."}
+      </p>
+      <p className="dark:text-dark-300 mt-1 text-xs text-gray-400">
+        Ciclo provisório (mês calendário). A política definitiva de renovação e
+        excedentes ainda não foi definida.
+      </p>
+    </SectionCard>
   );
 }

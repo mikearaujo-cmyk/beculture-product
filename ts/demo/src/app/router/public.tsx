@@ -78,6 +78,26 @@ const publicRoutes: RouteObject = {
               }),
             },
             {
+              path: "plano",
+              lazy: async () => ({
+                Component: (
+                  await import(
+                    "@/app/pages/prototypes/contas/screens/EscolherPlano"
+                  )
+                ).default,
+              }),
+            },
+            {
+              path: "onboarding-ia",
+              lazy: async () => ({
+                Component: (
+                  await import(
+                    "@/app/pages/prototypes/contas/screens/OnboardingIa"
+                  )
+                ).default,
+              }),
+            },
+            {
               path: "organizacao",
               lazy: async () => ({
                 Component: (

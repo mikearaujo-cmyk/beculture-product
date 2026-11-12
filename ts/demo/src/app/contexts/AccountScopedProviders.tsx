@@ -14,6 +14,7 @@ import { MemoryProvider } from "@/app/contexts/memory/Provider";
 import { DocumentoUploadProvider } from "@/app/contexts/documento-upload/Provider";
 import { IaModalsHostProvider } from "@/app/contexts/ia-modals/Provider";
 import { AssistenteHostProvider } from "@/app/contexts/assistente/Provider";
+import { ModeloIaProvider } from "@/app/contexts/modelo-ia/Provider";
 import { applyAppearancePrefs } from "@/utils/beculturePrefs";
 
 /**
@@ -53,11 +54,13 @@ export function AccountScopedProviders({ children }: { children: ReactNode }) {
               <CommentsProvider>
                 <ConnectorsProvider>
                   <MemoryProvider>
+                    <ModeloIaProvider>
                     <DocumentoUploadProvider>
                       <AssistenteHostProvider>
                         <IaModalsHostProvider>{children}</IaModalsHostProvider>
                       </AssistenteHostProvider>
                     </DocumentoUploadProvider>
+                    </ModeloIaProvider>
                   </MemoryProvider>
                 </ConnectorsProvider>
               </CommentsProvider>

@@ -12,6 +12,9 @@ export interface RegistrarContaInput {
   email: string;
   senha: string;
   organizacaoNome?: string;
+  /** Seleção de planos: dirige onboarding e regras de IA no backend. */
+  modalidadeIa?: "beculture" | "byok" | "organizacao";
+  planoIa?: "essencial" | "pro";
 }
 
 /**
@@ -76,6 +79,8 @@ export async function registrarContaApi(
     email: input.email,
     senha: input.senha,
     organizacaoNome: input.organizacaoNome,
+    modalidadeIa: input.modalidadeIa,
+    planoIa: input.planoIa,
   });
   return { authToken: data.authToken, user: usuarioApiParaUser(data.usuario) };
 }

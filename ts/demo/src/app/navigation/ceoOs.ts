@@ -510,6 +510,10 @@ export const systemAreas: SystemArea[] = [
   // Configurações de usuário (menu de perfil): Orientador de insights e
   // Conectores. Não aparece na sidebar — áreas de sistema só geram a rota.
   { slug: "configuracoes-usuario", title: "Configurações de usuário", transKey: k("userSettings"), icon: "ceo.config" },
+  // Backoffice do PROTÓTIPO: controle dos cenários administrativos (modelos
+  // BeCulture, conta em demonstração, repositórios). Acesso pelo rodapé da
+  // sidebar, para qualquer conta — não é funcionalidade comercial.
+  { slug: "backoffice", title: "Backoffice", transKey: k("backoffice"), icon: "ceo.config" },
 ];
 
 /** Seções de Configurações de usuário (`?secao=`). */

@@ -1,4 +1,5 @@
 import { JWT_HOST_API } from "@/configs/auth";
+import { modeloAtual } from "@/utils/modeloAtual";
 
 export interface AiChatTurn {
   role: "user" | "assistant";
@@ -32,7 +33,8 @@ export async function streamSquadChat(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    // Modelo do seletor (SeletorModelo) — o chat usa fetch, fora do axios.
+    body: JSON.stringify({ modelo: modeloAtual("text"), ...body }),
     signal,
   });
 

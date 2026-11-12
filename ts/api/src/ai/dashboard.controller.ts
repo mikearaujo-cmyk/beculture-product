@@ -22,6 +22,8 @@ import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 
 interface DashboardBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   tema?: string;
   dados?: string;
   contexto?: string;
@@ -108,7 +110,7 @@ export class DashboardController {
       SYSTEM_DASHBOARD,
       userPrompt,
       12000,
-      'dashboard',
+      'dashboard', { modelo: body.modelo },
     );
     return parseDashboard(text, tema);
   }

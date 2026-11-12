@@ -28,6 +28,8 @@ interface UploadedFileLike {
 }
 
 interface AnaliseBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   link?: string;
   objetivo?: string;
   descricao?: string;
@@ -174,7 +176,7 @@ export class AnaliseController {
       user.id,
       SYSTEM_ANALISE,
       userPrompt,
-      16000,
+      16000, undefined, { modelo: body.modelo },
     );
     let analise = text.trim();
     if (truncated) {

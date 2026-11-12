@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Logger,
   Post,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
+import { PrototipoIaService } from './prototipo.service';
 import { AiService } from './ai.service';
 import { AiConnectionsService } from './connections.service';
 import { AiMediaConnectionsService } from './media-connections.service';
@@ -44,6 +46,7 @@ export class AudioController {
     private readonly connections: AiConnectionsService,
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
+    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -64,7 +67,8 @@ export class AudioController {
       if (conn) return conn.apiKey;
     }
 
-    return this.config.get<string>('OPENAI_API_KEY') || '';
+    // Sem chave própria: chave operacional do protótipo (Backoffice → .env).
+    return (await this.prototipo.chave('openai'))?.apiKey ?? '';
   }
 
   /**
@@ -78,6 +82,7 @@ export class AudioController {
   async audio(
     @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() audio: UploadedFileLike | undefined,
+    @Body() body: { modelo?: string } = {},
   ): Promise<{
     titulo: string;
     resumo: string;
@@ -119,7 +124,7 @@ export class AudioController {
     }
 
     const userPrompt = buildResumoAudioUser(transcricao, titulosMemoria);
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_RESUMO_AUDIO, userPrompt, 16000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_RESUMO_AUDIO, userPrompt, 16000, undefined, { modelo: body.modelo });
     const { titulo, resumo } = parseResumoAudio(text);
 
     let salvo = false;
@@ -142,6 +147,7 @@ export class AudioController {
       conteudo: resumo,
       origem: 'Áudio',
       memoriaId,
+      modelo: body.modelo,
     });
 
     return { titulo, resumo, transcricao, salvo, memoriaId, insightsGerados: gerados.length };

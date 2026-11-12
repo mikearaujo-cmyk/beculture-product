@@ -9,6 +9,8 @@ import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 
 interface MelhorarBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   texto?: string;
   instrucoes?: string;
   /** Design system da marca escolhida no AI Studio. */
@@ -49,7 +51,7 @@ export class MelhorarController {
     const userPrompt =
       designBrief(parseDesign(body.design)) +
       buildMelhorarUser(texto, (body.instrucoes || '').trim(), titulosVault);
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_MELHORAR, userPrompt, 4000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_MELHORAR, userPrompt, 4000, undefined, { modelo: body.modelo });
     return parseMelhorado(text, texto);
   }
 }

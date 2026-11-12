@@ -305,6 +305,8 @@ export class InsightsService {
       memoriaId?: string;
       /** Teto do lote. Omitido, vale MAX_INSIGHTS_PADRAO. */
       max?: number;
+      /** Modelo escolhido no seletor da ação de origem. */
+      modelo?: string;
     },
   ): Promise<InsightDto[]> {
     const conteudo = (material.conteudo || '').trim();
@@ -328,6 +330,7 @@ export class InsightsService {
         // Análise e evidências deixam a resposta bem maior que o resumo.
         8000,
         'insights',
+        { modelo: material.modelo },
       );
       // O material vai junto: evidência só é aceita se estiver nele.
       const itens = parseInsights(text, max, direcionamentos, conteudo);

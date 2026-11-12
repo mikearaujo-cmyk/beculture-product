@@ -61,6 +61,8 @@ interface ArquivoEnviado {
 
 
 interface RoteiroBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   tema?: string;
   formato?: string;
   nSlides?: number | string;
@@ -114,6 +116,8 @@ export interface FontesUsadas {
 }
 
 interface AjustarBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   plano?: Plano;
   /** Índice do slide no plano (base 0). */
   indice?: number | string;
@@ -124,6 +128,8 @@ interface AjustarBody {
 }
 
 interface SlidesBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   plano?: Plano;
   formato?: string;
   publico?: string;
@@ -220,7 +226,7 @@ export class ApresentacaoController {
         titulosVault,
       });
 
-    const { text } = await this.ai.completar(user.empresaId, user.id, system, userPrompt, 8000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, system, userPrompt, 8000, undefined, { modelo: body.modelo });
     return { formato, roteiro: parseRoteiro(text, formato), fontesUsadas };
   }
 
@@ -335,7 +341,7 @@ export class ApresentacaoController {
       SYSTEM_PLANO,
       userPrompt,
       8000,
-      'apresentacao-plano',
+      'apresentacao-plano', { modelo: body.modelo },
     );
     return { formato, plano: parsePlano(text), fontesUsadas };
   }
@@ -377,7 +383,7 @@ export class ApresentacaoController {
         blocoTemplate(body) +
         buildAjusteUser(plano, indice, instrucao),
       2000,
-      'apresentacao-ajuste',
+      'apresentacao-ajuste', { modelo: body.modelo },
     );
 
     const atual = plano.slides[indice];
@@ -426,7 +432,7 @@ export class ApresentacaoController {
       isBook ? SYSTEM_CAPITULOS_DO_PLANO : SYSTEM_SLIDES_DO_PLANO,
       userPrompt,
       12000,
-      'apresentacao-slides',
+      'apresentacao-slides', { modelo: body.modelo },
     );
     if (truncated) {
       // Sem isto o JSON cortado morre no parse como "resposta inválida", e o

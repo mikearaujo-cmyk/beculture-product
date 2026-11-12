@@ -31,6 +31,12 @@ export class ChatStreamDto {
   @MaxLength(100)
   agentId?: string;
 
+  /** Modelo escolhido no seletor ("auto" = orquestrador). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  modelo?: string;
+
   /** Conversa existente a continuar; ausente cria uma nova. */
   @IsOptional()
   @IsString()

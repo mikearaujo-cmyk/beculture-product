@@ -7,9 +7,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrototipoIaService } from './prototipo.service';
 import { AiMediaConnectionsService } from './media-connections.service';
 import { ehChaveRejeitada, ehFalhaDeProvedor } from './falha-provedor';
 import { gerarImagensOpenAI, type ModeloImagem } from './imagem/gerar';
+
+/** Modelos de imagem que a geração do protótipo executa (OpenAI). */
+const MODELOS_EXECUTAVEIS: string[] = ['gpt-image-1', 'dall-e-3', 'dall-e-2'];
 import { designImagemHint, parseDesign, type DesignSystemDto } from './design/design';
 import { MemoriasService } from '@/memorias/memorias.service';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
@@ -52,6 +56,7 @@ export class ImagemController {
   constructor(
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
+    private readonly prototipo: PrototipoIaService,
     private readonly memorias: MemoriasService,
   ) {}
 
@@ -88,7 +93,9 @@ export class ImagemController {
     let ultimoErro: unknown;
     for (let i = 0; i < tentativas.length; i++) {
       const tentativa = tentativas[i];
-      const escolhido = (body.modelo as ModeloImagem) || undefined;
+      const escolhido = MODELOS_EXECUTAVEIS.includes(body.modelo as ModeloImagem)
+        ? (body.modelo as ModeloImagem)
+        : undefined;
       const reserva = tentativa.model as ModeloImagem | undefined;
       try {
         const { images, formato } = await gerarImagensOpenAI(tentativa.apiKey, {
@@ -142,10 +149,11 @@ export class ImagemController {
       );
     }
 
-    const key = this.config.get<string>('OPENAI_API_KEY') || '';
+    // Sem fila própria: chave operacional do protótipo (Backoffice → .env).
+    const key = (await this.prototipo.chave('openai'))?.apiKey ?? '';
     if (!key) {
       throw new BadRequestException(
-        'Nenhuma IA de Imagem conectada. Conecte a OpenAI na seção Imagem em Configurações (ou defina OPENAI_API_KEY no servidor).',
+        'Nenhuma IA de Imagem disponível. Cadastre a chave OpenAI em Backoffice → Configuração de API.',
       );
     }
     return [{ apiKey: key }];

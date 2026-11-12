@@ -3,6 +3,8 @@ import type { AiConnectionStatus, AiMediaKind } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CryptoService } from './crypto';
 import { AiCredentialsService } from './credentials.service';
+import { ModalidadeService } from './modalidade.service';
+import { PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS } from './prototipo.service';
 import {
   catalogForKind,
   isKnownModelFor,
@@ -49,6 +51,7 @@ export class AiMediaConnectionsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly credentials: AiCredentialsService,
+    private readonly modalidade: ModalidadeService,
   ) {}
 
   catalog(kind: AiMediaKind): MediaProviderInfo[] {
@@ -85,6 +88,7 @@ export class AiMediaConnectionsService {
     kind: AiMediaKind,
     input: SetMediaConnectionInput,
   ): Promise<PublicMediaConnection> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     const cred = await this.credentials.exigirDaEmpresa(
       empresaId,
       input.credentialId,
@@ -127,6 +131,7 @@ export class AiMediaConnectionsService {
     kind: AiMediaKind,
     id: string,
   ): Promise<void> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     const { count } = await this.prisma.aiMediaConnection.deleteMany({
       where: { id, empresaId, kind },
     });
@@ -138,6 +143,7 @@ export class AiMediaConnectionsService {
     kind: AiMediaKind,
     ids: string[],
   ): Promise<PublicMediaConnection[]> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     await this.prisma.$transaction(
       ids.map((id, index) =>
         this.prisma.aiMediaConnection.updateMany({
@@ -153,8 +159,17 @@ export class AiMediaConnectionsService {
     empresaId: string,
     kind: AiMediaKind,
   ): Promise<DecryptedMediaConnection[]> {
+    // PROTÓTIPO: chaves da conta são demonstrativas (ver connections.service).
+    if (PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS) return [];
+    // B2C BeCulture: a fila própria (se houver, de um BYOK anterior) fica
+    // guardada e sem uso. Os controllers de mídia executam então pela chave
+    // operacional do protótipo — as credenciais de "Modelos BeCulture" são
+    // demonstrativas e não executam chamadas.
+    const ctx = await this.modalidade.contexto(empresaId);
+    if (ctx.modalidade === 'beculture') return [];
+
     const rows = await this.prisma.aiMediaConnection.findMany({
-      where: { empresaId, kind },
+      where: { empresaId, kind, credential: { ativa: true } },
       orderBy: [{ priority: 'asc' }, { criadoEm: 'asc' }],
       include: { credential: true },
     });

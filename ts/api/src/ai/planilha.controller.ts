@@ -72,6 +72,8 @@ interface RecursosBody {
 // ele descartado pelo ValidationPipe, sem quebrar.
 
 interface PlanoBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   necessidade?: string;
   nome?: string;
   /** '' | 'resumido' | 'detalhado'. */
@@ -86,11 +88,15 @@ interface PlanoBody {
 }
 
 interface ConteudoBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   plano?: PlanoPlanilha;
   referencia?: string;
 }
 
 interface GerarBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   plano?: PlanoPlanilha;
   /**
    * As linhas já escritas pela IA.
@@ -107,6 +113,8 @@ interface GerarBody {
 }
 
 interface AjustarBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   plano?: PlanoPlanilha;
   /** Índice da aba no plano (base 0). */
   indice?: number | string;
@@ -356,7 +364,7 @@ export class PlanilhaController {
       SYSTEM_PLANO_PLANILHA,
       userPrompt,
       8000,
-      'planilha-plano',
+      'planilha-plano', { modelo: body.modelo },
     );
     return { plano: parsePlanoPlanilha(text), fontes };
   }
@@ -395,7 +403,7 @@ export class PlanilhaController {
       SYSTEM_AJUSTE_ABA,
       designBrief(design) + buildAjusteAbaUser(plano, indice, instrucao),
       4000,
-      'planilha-ajustar',
+      'planilha-ajustar', { modelo: body.modelo },
     );
 
     const { aba, impactos } = parseAjusteAba(text, indice);
@@ -437,7 +445,7 @@ export class PlanilhaController {
       SYSTEM_CONTEUDO_PLANILHA,
       buildConteudoUser(plano, referencia),
       12000,
-      'planilha-conteudo',
+      'planilha-conteudo', { modelo: body.modelo },
     );
 
     // Não lança: aba que o modelo esqueceu sai vazia, e o arquivo é entregue
@@ -484,7 +492,7 @@ export class PlanilhaController {
         SYSTEM_CONTEUDO_PLANILHA,
         buildConteudoUser(plano, referencia),
         12000,
-        'planilha-conteudo',
+        'planilha-conteudo', { modelo: body.modelo },
       );
       // `parseConteudoPlanilha` não lança: aba que o modelo esqueceu sai vazia,
       // e o arquivo é entregue com a estrutura de qualquer jeito. Planilha

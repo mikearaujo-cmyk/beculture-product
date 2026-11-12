@@ -24,6 +24,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Erro interno do servidor.';
+    /** Código estável opcional (ex.: "sem_chave_usuario") para a UI escolher o estado. */
+    let codigo: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -32,6 +34,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message = res;
       } else if (res && typeof res === 'object' && 'message' in res) {
         message = (res as { message: string | string[] }).message;
+        const c = (res as { codigo?: unknown }).codigo;
+        if (typeof c === 'string') codigo = c;
       }
     } else {
       this.logger.error(exception);
@@ -40,6 +44,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       message,
+      ...(codigo ? { codigo } : {}),
     });
   }
 }

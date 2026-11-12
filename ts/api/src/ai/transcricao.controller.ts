@@ -29,6 +29,8 @@ interface UploadedFileLike {
 }
 
 interface TranscricaoBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   texto?: string;
   instrucoes?: string;
 }
@@ -91,7 +93,7 @@ export class TranscricaoController {
     }
 
     const userPrompt = buildTranscricaoUser(conteudo, (body.instrucoes || '').trim(), titulosMemoria);
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_TRANSCRICAO, userPrompt, 16000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_TRANSCRICAO, userPrompt, 16000, undefined, { modelo: body.modelo });
     const { titulo, ata } = parseAtaEstrategica(text);
 
     // Salva a ata na Memória (categoria Reuniões), como o beculture grava no vault.
@@ -115,6 +117,7 @@ export class TranscricaoController {
       conteudo: ata,
       origem: 'Transcrição',
       memoriaId,
+      modelo: body.modelo,
     });
 
     return { titulo, ata, salvo, memoriaId, insightsGerados: gerados.length };

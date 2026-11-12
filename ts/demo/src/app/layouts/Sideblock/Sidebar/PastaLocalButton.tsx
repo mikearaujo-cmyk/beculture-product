@@ -4,6 +4,7 @@ import { FolderIcon } from "@heroicons/react/24/outline";
 
 // Local Imports
 import { PastaLocalModal } from "@/app/pages/ceo/PastaLocalModal";
+import { BackofficeButton } from "./BackofficeButton";
 
 // ----------------------------------------------------------------------
 // Acesso à Pasta local do PROTÓTIPO, no rodapé da sidebar.
@@ -17,7 +18,9 @@ export function PastaLocalButton() {
   const [aberto, setAberto] = useState(false);
 
   return (
-    <div className="dark:border-dark-600/80 shrink-0 border-t border-gray-200 px-3 py-2">
+    <div className="dark:border-dark-600/80 shrink-0 space-y-0.5 border-t border-gray-200 px-3 py-2">
+      {/* Backoffice do protótipo: mesmo rodapé, acesso permanente. */}
+      <BackofficeButton />
       <button
         type="button"
         onClick={() => setAberto(true)}

@@ -34,6 +34,15 @@ import { AiConnectionsService } from './connections.service';
 import { AiCredentialsService } from './credentials.service';
 import { AiMediaConnectionsService } from './media-connections.service';
 import { CryptoService } from './crypto';
+import { ModalidadeService } from './modalidade.service';
+import { PlataformaIaService } from './plataforma.service';
+import { PrototipoIaService } from './prototipo.service';
+import { BackofficeGuard } from './backoffice.guard';
+import { ModelosContaService } from './modelos-conta.service';
+import { FranquiaService } from './franquia.service';
+import { ContaIaService } from './conta-ia.service';
+import { ContaIaController } from './conta-ia.controller';
+import { BackofficeController } from './backoffice.controller';
 import { AuthModule } from '@/auth/auth.module';
 import { ConversasModule } from '@/conversas/conversas.module';
 import { MemoriasModule } from '@/memorias/memorias.module';
@@ -45,6 +54,8 @@ import { UsoModule } from '@/uso/uso.module';
     AiController,
     AiConnectionsController,
     AiCredentialsController,
+    ContaIaController,
+    BackofficeController,
     AiMediaConnectionsController,
     AnaliseController,
     ApresentacaoController,
@@ -74,6 +85,13 @@ import { UsoModule } from '@/uso/uso.module';
     AiCredentialsService,
     AiMediaConnectionsService,
     CryptoService,
+    ModalidadeService,
+    PlataformaIaService,
+    PrototipoIaService,
+    BackofficeGuard,
+    ModelosContaService,
+    FranquiaService,
+    ContaIaService,
     InsightsService,
     DirecionamentosService,
     VaultService,

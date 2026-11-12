@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrototipoIaService } from './prototipo.service';
 import { AiService } from './ai.service';
 import { AiMediaConnectionsService } from './media-connections.service';
 import { ehChaveRejeitada, ehFalhaDeProvedor } from './falha-provedor';
@@ -26,6 +27,8 @@ A partir de um tema (e contexto opcional), escreva APENAS o texto que o avatar v
 - PROIBIDO clichê de IA ("no mundo de hoje", "descubra como", "revolucionar"). Não invente dados.`;
 
 interface RoteiroBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   tema?: string;
   contexto?: string;
   /** Design system da marca escolhida no AI Studio. */
@@ -58,6 +61,7 @@ export class VideoController {
     private readonly ai: AiService,
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
+    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -82,7 +86,8 @@ export class VideoController {
         outrosProvedores: [...new Set(fila.map((c) => c.provider))],
       };
     }
-    const key = this.config.get<string>('HEYGEN_API_KEY') || '';
+    // Sem fila própria: chave operacional do protótipo (Backoffice → .env).
+    const key = (await this.prototipo.chave('heygen'))?.apiKey ?? '';
     return { chaves: key ? [{ apiKey: key }] : [], outrosProvedores: [] };
   }
 
@@ -148,7 +153,7 @@ export class VideoController {
       `## TEMA\n${tema}\n` +
       (contexto ? `\n## CONTEXTO\n${contexto}\n` : '') +
       `\nEscreva agora o texto falado (apenas o texto).`;
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_ROTEIRO_VIDEO, userPrompt, 1500);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_ROTEIRO_VIDEO, userPrompt, 1500, undefined, { modelo: body.modelo });
     return { script: text.trim() };
   }
 

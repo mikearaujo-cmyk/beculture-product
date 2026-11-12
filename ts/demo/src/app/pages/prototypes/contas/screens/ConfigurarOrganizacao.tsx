@@ -24,6 +24,43 @@ import { MolduraAuth } from "../components/MolduraAuth";
 import { OrganizationFields } from "../components/OrganizationFields";
 import { TipoUsoSelector } from "../components/TipoUsoSelector";
 import { usePrototipoContas, useUsuario } from "../model/context";
+import { lerPlanoEscolhido, MODALIDADES } from "../model/planoEscolhido";
+import type { ModalidadeIa } from "@/services/api/modalidade";
+
+/** Plano já escolhido na etapa anterior, com atalho para trocar. */
+function PlanoResumo({
+  modalidade,
+  onTrocar,
+}: {
+  modalidade: ModalidadeIa;
+  onTrocar: () => void;
+}) {
+  const m = MODALIDADES.find((x) => x.id === modalidade)!;
+  return (
+    <div className="dark:border-dark-600 dark:bg-dark-800 flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+      <div className="min-w-0">
+        <p className="dark:text-dark-300 text-tiny-plus font-semibold tracking-wider text-gray-400 uppercase">
+          Plano escolhido · {m.contexto}
+        </p>
+        <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
+          {m.titulo}
+        </p>
+        <p className="dark:text-dark-300 text-xs text-gray-500">
+          {m.contexto === "B2B"
+            ? "Informe a organização que vai contratar."
+            : "Uso pessoal: sua conta é o próprio espaço de trabalho."}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onTrocar}
+        className="shrink-0 text-xs-plus font-medium text-primary-600 hover:text-primary-800 dark:text-primary-400"
+      >
+        Trocar plano
+      </button>
+    </div>
+  );
+}
 import {
   organizacaoSchema,
   type OrganizacaoFormValues,
@@ -38,6 +75,14 @@ export default function ConfigurarOrganizacao() {
   const { adoptSession } = useAuthContext();
   const [enviando, setEnviando] = useState(false);
   const [erroBackend, setErroBackend] = useState<string | null>(null);
+  // No cadastro, o plano escolhido já define o uso: B2C = pessoal, B2B =
+  // organização. Pelo menu de perfil (`?novo=1`) continua a escolha livre.
+  const plano = novaOrganizacao ? null : lerPlanoEscolhido();
+  const tipoDoPlano: OrganizacaoFormValues["tipoUso"] | null = plano
+    ? plano.modalidadeIa === "organizacao"
+      ? "organization"
+      : "personal"
+    : null;
 
   const {
     register,
@@ -47,7 +92,8 @@ export default function ConfigurarOrganizacao() {
   } = useForm<OrganizacaoFormValues>({
     resolver: yupResolver(organizacaoSchema),
     defaultValues: {
-      tipoUso: novaOrganizacao ? "organization" : "personal",
+      tipoUso:
+        tipoDoPlano ?? (novaOrganizacao ? "organization" : "personal"),
       nomeOrganizacao: "",
       emails: [],
     },
@@ -56,6 +102,7 @@ export default function ConfigurarOrganizacao() {
   const tipoUso = useWatch({ control, name: "tipoUso" });
 
   if (!usuario) return <Navigate to="../criar-conta" replace />;
+  if (!novaOrganizacao && !plano) return <Navigate to="../plano" replace />;
 
   const onSubmit = async (valores: OrganizacaoFormValues) => {
     setErroBackend(null);
@@ -91,6 +138,8 @@ export default function ConfigurarOrganizacao() {
       email: usuario.email,
       senha: usuario.senha,
       organizacaoNome: nome,
+      modalidadeIa: plano?.modalidadeIa,
+      planoIa: plano?.planoIa,
     });
     setEnviando(false);
 
@@ -105,7 +154,8 @@ export default function ConfigurarOrganizacao() {
     }
 
     adoptSession(sessao.authToken, sessao.user);
-    navigate(HOME_PATH);
+    // Onboarding específico da modalidade (BeCulture, BYOK ou B2B).
+    navigate("../onboarding-ia");
   };
 
   return (
@@ -118,6 +168,12 @@ export default function ConfigurarOrganizacao() {
       subtitulo="Isso ajuda a personalizar sua experiência"
     >
       <form onSubmit={handleSubmit(onSubmit)} autoComplete="off">
+        {tipoDoPlano ? (
+          <PlanoResumo
+            modalidade={plano!.modalidadeIa}
+            onTrocar={() => navigate("../plano")}
+          />
+        ) : (
         <Controller
           name="tipoUso"
           control={control}
@@ -128,6 +184,7 @@ export default function ConfigurarOrganizacao() {
             />
           )}
         />
+        )}
         {errors.tipoUso?.message && (
           <p className="mt-2 text-xs text-error dark:text-error-lighter">
             {errors.tipoUso.message}

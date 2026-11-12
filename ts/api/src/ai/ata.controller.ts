@@ -27,6 +27,8 @@ interface UploadedFileLike {
 }
 
 interface AtaBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   texto?: string;
   instrucoes?: string;
   memoria?: string; // "true" | "false"
@@ -106,7 +108,7 @@ export class AtaController {
         titulosVault,
       });
 
-    const { text } = await this.ai.completar(user.empresaId, user.id, system, userPrompt, 8000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, system, userPrompt, 8000, undefined, { modelo: body.modelo });
     return { ...parseAta(text), memoria };
   }
 }

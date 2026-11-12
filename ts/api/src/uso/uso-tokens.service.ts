@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { OrigemCredencial, PlanoIaB2c } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 
 /** Consumo de tokens numa janela de tempo. */
@@ -47,6 +48,13 @@ export class UsoTokensService {
     entrada?: number;
     saida?: number;
     fonte?: string;
+    provider?: string;
+    model?: string;
+    origem?: OrigemCredencial;
+    solicitadoComo?: string;
+    planoIa?: PlanoIaB2c;
+    execucaoId?: string;
+    execucao?: string;
   }): void {
     const entrada = Math.max(0, Math.round(Number(evento.entrada) || 0));
     const saida = Math.max(0, Math.round(Number(evento.saida) || 0));
@@ -60,6 +68,13 @@ export class UsoTokensService {
           entrada,
           saida,
           fonte: evento.fonte,
+          provider: evento.provider,
+          model: evento.model,
+          origem: evento.origem,
+          solicitadoComo: evento.solicitadoComo,
+          planoIa: evento.planoIa,
+          execucaoId: evento.execucaoId,
+          execucao: evento.execucao,
         },
       })
       .then(() => this.podarSeNecessario())

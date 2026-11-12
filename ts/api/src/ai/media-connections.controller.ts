@@ -15,6 +15,10 @@ import { ReorderConnectionsDto } from './dto/reorder.dto';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { CurrentUser } from '@/common/current-user.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
+import {
+  PermissoesGuard,
+  RequerPermissao,
+} from '@/acesso/permissoes.guard';
 
 /** Valida o segmento :kind da rota (image | video). */
 function parseKind(kind: string): AiMediaKind {
@@ -23,7 +27,7 @@ function parseKind(kind: string): AiMediaKind {
 }
 
 @Controller('ai/media')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissoesGuard)
 export class AiMediaConnectionsController {
   constructor(private readonly media: AiMediaConnectionsService) {}
 
@@ -41,6 +45,7 @@ export class AiMediaConnectionsController {
 
   /** PUT /ai/media/:kind/connections → adiciona um modelo a partir de uma chave. */
   @Put(':kind/connections')
+  @RequerPermissao('configuracoes.gerenciar')
   add(
     @CurrentUser() user: AuthenticatedUser,
     @Param('kind') kind: string,
@@ -51,6 +56,7 @@ export class AiMediaConnectionsController {
 
   /** PUT /ai/media/:kind/connections/order → grava a nova ordem de prioridade. */
   @Put(':kind/connections/order')
+  @RequerPermissao('configuracoes.gerenciar')
   reorder(
     @CurrentUser() user: AuthenticatedUser,
     @Param('kind') kind: string,
@@ -61,6 +67,7 @@ export class AiMediaConnectionsController {
 
   /** DELETE /ai/media/:kind/connections/:id → remove um modelo da fila. */
   @Delete(':kind/connections/:id')
+  @RequerPermissao('configuracoes.gerenciar')
   async remove(
     @CurrentUser() user: AuthenticatedUser,
     @Param('kind') kind: string,

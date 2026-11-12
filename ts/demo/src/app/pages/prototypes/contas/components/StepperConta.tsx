@@ -1,33 +1,57 @@
 /**
- * Stepper de duas etapas: Conta → Organização.
+ * Stepper do fluxo de contas.
  *
  * Clone do `Stepper` de `@/app/pages/onboarding` (mesmas classes de círculo,
- * mesmos estados concluído/ativo/neutro), adaptado para os dois passos deste
- * fluxo. Existe para deixar visualmente óbvio que criar a conta e configurar a
- * organização (pessoal ou corporativa) são etapas SEPARADAS.
+ * mesmos estados concluído/ativo/neutro). Sem `etapas`, mostra as duas etapas
+ * originais (Conta → Organização). O onboarding de IA passa a própria lista,
+ * que varia por modalidade; com muitas etapas ele fica mais compacto.
  */
 
-import { BuildingOffice2Icon, CheckIcon, UserIcon } from "@heroicons/react/24/outline";
+import {
+  BuildingOffice2Icon,
+  CheckIcon,
+  UserIcon,
+} from "@heroicons/react/24/outline";
 import clsx from "clsx";
+import type { ElementType } from "react";
 
-const STEPS = [
+export interface EtapaStepper {
+  key: string;
+  titulo: string;
+  Icon: ElementType;
+}
+
+const STEPS_PADRAO: EtapaStepper[] = [
   { key: "conta", titulo: "Sua conta", Icon: UserIcon },
   { key: "organizacao", titulo: "Sua organização", Icon: BuildingOffice2Icon },
-] as const;
+];
 
-export function StepperConta({ stepIndex }: { stepIndex: number }) {
+export function StepperConta({
+  stepIndex,
+  etapas = STEPS_PADRAO,
+}: {
+  stepIndex: number;
+  etapas?: EtapaStepper[];
+}) {
+  const compacto = etapas.length > 4;
   return (
     // Colunas de mesma largura e conector alinhado ao centro do círculo: sem
-    // isso os rótulos ("Sua conta" × "Sua organização") têm larguras diferentes e
-    // o eixo dos círculos sai do centro da moldura.
+    // isso os rótulos têm larguras diferentes e o eixo dos círculos sai do
+    // centro da moldura.
     <div className="mt-6 flex items-start justify-center">
-      {STEPS.map((s, i) => {
+      {etapas.map((s, i) => {
         const concluido = i < stepIndex;
         const ativo = i === stepIndex;
         return (
           <div key={s.key} className="flex items-start">
-            <div className="flex w-9 flex-col items-center gap-1.5 sm:w-28">
+            <div
+              className={clsx(
+                "flex w-9 flex-col items-center gap-1.5",
+                compacto ? "sm:w-20" : "sm:w-28",
+              )}
+            >
               <span
+                aria-current={ativo ? "step" : undefined}
                 className={clsx(
                   "flex size-9 items-center justify-center rounded-full border-2 transition-colors",
                   concluido && "border-primary-500 bg-primary-500 text-slate-900",
@@ -45,7 +69,8 @@ export function StepperConta({ stepIndex }: { stepIndex: number }) {
               </span>
               <span
                 className={clsx(
-                  "hidden text-center text-xs font-medium sm:block",
+                  "hidden text-center font-medium sm:block",
+                  compacto ? "text-tiny leading-tight" : "text-xs",
                   ativo || concluido
                     ? "text-gray-700 dark:text-dark-100"
                     : "text-gray-400 dark:text-dark-300",
@@ -54,10 +79,11 @@ export function StepperConta({ stepIndex }: { stepIndex: number }) {
                 {s.titulo}
               </span>
             </div>
-            {i < STEPS.length - 1 && (
+            {i < etapas.length - 1 && (
               <span
                 className={clsx(
-                  "mx-2 mt-[17px] h-0.5 w-10 rounded sm:w-16",
+                  "mt-[17px] h-0.5 rounded",
+                  compacto ? "mx-0.5 w-3 sm:w-4" : "mx-2 w-10 sm:w-16",
                   i < stepIndex ? "bg-primary-500" : "bg-gray-200 dark:bg-dark-500",
                 )}
               />

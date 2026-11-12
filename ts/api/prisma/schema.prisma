@@ -131,6 +131,35 @@ enum MemoriaConfianca {
   baixa
 }
 
+/// Contexto comercial da conta: pessoa física (B2C) ou organização (B2B SaaS).
+enum ModalidadeComercial {
+  b2c
+  b2b
+}
+
+/// De onde vêm os modelos de IA da conta.
+///   beculture   = B2C com modelos gerenciados pela BeCulture (credenciais da plataforma)
+///   byok        = B2C com chaves do próprio usuário
+///   organizacao = B2B, chaves da organização (sem modelos/franquia BeCulture)
+enum ModalidadeIa {
+  beculture
+  byok
+  organizacao
+}
+
+/// Planos B2C com modelos BeCulture (franquia/limites configurados no Backoffice).
+enum PlanoIaB2c {
+  essencial
+  pro
+}
+
+/// Quem é dono da credencial usada numa chamada.
+enum OrigemCredencial {
+  plataforma
+  usuario
+  organizacao
+}
+
 // ---------- Modelos ----------
 
 /// O tenant que contrata (identidade + plano escolhido).
@@ -146,6 +175,17 @@ model Empresa {
   setor                 String?
   onboardingConcluidoEm DateTime?
   criadoEm              DateTime      @default(now())
+
+  /// Modalidade escolhida na seleção de planos. Nulo = conta legada (comporta-se
+  /// como antes: fila BYOK da empresa + IA gerenciada só durante o trial).
+  modalidadeComercial ModalidadeComercial?
+  modalidadeIa        ModalidadeIa?
+  /// Só faz sentido com modalidadeIa = beculture.
+  planoIa             PlanoIaB2c?
+  /// Etapas do onboarding de IA já concluídas: { [etapa]: ISO date }.
+  onboardingEtapas    Json?
+  /// Preferências de uso da IA (ex.: { one: true } liga a orquestração ONE).
+  preferenciasIa      Json?
 
   usuarios               Usuario[]
   convites               Convite[]
@@ -176,17 +216,21 @@ model Empresa {
 
 /// Quem faz login; o trial (14 dias) é contado por usuário.
 model Usuario {
-  id            String   @id @default(cuid())
-  empresaId     String
-  nome          String
-  email         String   @unique
-  senhaHash     String
-  telefone      String?
-  avatarUrl     String?
-  role          UserRole @default(membro)
-  trialStartsAt DateTime
-  trialEndsAt   DateTime
-  criadoEm      DateTime @default(now())
+  id                String   @id @default(cuid())
+  empresaId         String
+  nome              String
+  email             String   @unique
+  senhaHash         String
+  telefone          String?
+  avatarUrl         String?
+  role              UserRole @default(membro)
+  trialStartsAt     DateTime
+  trialEndsAt       DateTime
+  /// Último modelo escolhido no seletor de cada ação, por modalidade:
+  /// { text?: string, image?: string, video?: string } ("auto" = orquestrador).
+  /// Vale para todas as ações até o usuário trocar de novo.
+  modelosPreferidos Json?
+  criadoEm          DateTime @default(now())
 
   empresa   Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   squadPins SquadPin[]
@@ -784,6 +828,8 @@ model AiCredential {
   keyLast4        String
   status          AiConnectionStatus @default(ativa)
   validatedAt     DateTime?
+  /// Desligada pelo dono: não entra nas filas na hora da chamada (fica guardada).
+  ativa           Boolean            @default(true)
   criadoEm        DateTime           @default(now())
   atualizadoEm    DateTime           @updatedAt
 
@@ -1506,16 +1552,30 @@ model Criacao {
 /// de uso do header (janelas de 1h/24h/7d). O escopo é por usuário (usuarioId),
 /// dentro da empresa. Eventos com mais de 7 dias são podados (a maior janela).
 model AiUsage {
-  id        String   @id @default(cuid())
-  empresaId String
-  usuarioId String
+  id             String            @id @default(cuid())
+  empresaId      String
+  usuarioId      String
   /// Tokens de entrada (inclui leitura/criação de cache).
-  entrada   Int
+  entrada        Int
   /// Tokens de saída (geração).
-  saida     Int
+  saida          Int
   /// Rótulo de diagnóstico da origem (ex.: "chat", "completar", "web").
-  fonte     String?
-  criadoEm  DateTime @default(now())
+  fonte          String?
+  /// Provedor e modelo efetivamente executados (mesmo quando o pedido foi ONE).
+  provider       String?
+  model          String?
+  /// Dono da credencial usada. Só `plataforma` conta para a franquia BeCulture.
+  origem         OrigemCredencial?
+  /// O que foi pedido na interface: "one" ou o id do modelo.
+  solicitadoComo String?
+  /// Plano B2C vigente no momento da chamada (só para origem = plataforma).
+  planoIa        PlanoIaB2c?
+  /// Agrupa as etapas de uma mesma execução (ex.: várias chamadas do ONE).
+  execucaoId     String?
+  /// Infraestrutura que executou: "propria" (chave da conta), "prototipo"
+  /// (chave operacional do Backoffice) ou "ambiente" (.env do servidor).
+  execucao       String?
+  criadoEm       DateTime          @default(now())
 
   empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
@@ -1523,4 +1583,97 @@ model AiUsage {
   @@index([usuarioId, criadoEm])
   @@index([empresaId])
   @@map("ai_usage")
+}
+
+// ---------- Configuração de API do PROTÓTIPO (Backoffice) ----------
+// Chave operacional real usada pela infraestrutura de execução de IA do
+// protótipo. NÃO é credencial de plano, de usuário (BYOK) nem de organização
+// (B2B), e não faz parte do catálogo "Modelos BeCulture". Uma por provedor.
+
+model PrototipoCredencial {
+  id              String             @id @default(cuid())
+  /// Provedor executável: anthropic | openai | heygen.
+  provider        String             @unique
+  apiKeyEncrypted String
+  keyLast4        String
+  status          AiConnectionStatus @default(ativa)
+  validatedAt     DateTime?
+  /// Modelo usado quando o pedido não indica um executável por esta chave.
+  modeloPadrao    String?
+  criadoEm        DateTime           @default(now())
+  atualizadoEm    DateTime           @updatedAt
+
+  @@map("prototipo_credenciais")
+}
+
+// ---------- Modelos BeCulture (Backoffice) ----------
+// Catálogo ADMINISTRATIVO DEMONSTRATIVO: provedores, credenciais e modelos que
+// a BeCulture publicaria nos planos B2C. NÃO tem empresaId e as credenciais
+// daqui NÃO executam chamadas no protótipo (quem executa é a chave operacional).
+
+/// Credencial de um provedor mantida pela BeCulture (demonstrativa).
+model PlataformaCredencial {
+  id              String             @id @default(cuid())
+  /// Slug do provedor: do catálogo (ex.: "anthropic") ou livre.
+  provider        String
+  /// Nome livre do provedor quando ele não está no catálogo do sistema.
+  nomeProvedor    String?
+  nome            String?
+  apiKeyEncrypted String
+  keyLast4        String
+  status          AiConnectionStatus @default(ativa)
+  validatedAt     DateTime?
+  ativa           Boolean            @default(true)
+  criadoEm        DateTime           @default(now())
+  atualizadoEm    DateTime           @updatedAt
+
+  modelos PlataformaModelo[]
+
+  @@map("plataforma_credenciais")
+}
+
+/// Modelo disponibilizado pela BeCulture. `kind`: text | image | video.
+model PlataformaModelo {
+  id           String   @id @default(cuid())
+  credencialId String
+  kind         String   @default("text")
+  provider     String
+  model        String
+  rotulo       String?
+  ativo        Boolean  @default(true)
+  ordem        Int      @default(0)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  credencial PlataformaCredencial    @relation(fields: [credencialId], references: [id], onDelete: Cascade)
+  planos     PlataformaModeloPlano[]
+
+  @@unique([credencialId, kind, model])
+  @@map("plataforma_modelos")
+}
+
+/// Disponibilidade de um modelo num plano B2C, com limite individual opcional.
+model PlataformaModeloPlano {
+  id                String     @id @default(cuid())
+  modeloId          String
+  plano             PlanoIaB2c
+  /// Limite de tokens (entrada+saída) por usuário no ciclo. Nulo = sem limite.
+  limiteTokensCiclo Int?
+
+  modelo PlataformaModelo @relation(fields: [modeloId], references: [id], onDelete: Cascade)
+
+  @@unique([modeloId, plano])
+  @@map("plataforma_modelo_planos")
+}
+
+/// Configuração de franquia do plano B2C. Regra PROVISÓRIA: a política global /
+/// híbrida, ciclo de renovação e excedentes ainda não foram definidos.
+model PlataformaPlanoIa {
+  plano                PlanoIaB2c @id
+  /// Franquia global de tokens por usuário no ciclo. Nulo = só limites por modelo.
+  franquiaGlobalTokens Int?
+  observacao           String?
+  atualizadoEm         DateTime   @updatedAt
+
+  @@map("plataforma_planos_ia")
 }

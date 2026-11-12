@@ -30,6 +30,8 @@ interface GerarInsightsBody {
   conteudo?: string;
   origem?: string;
   memoriaId?: string;
+  /** Modelo escolhido no seletor ("auto" = orquestrador). */
+  modelo?: string;
 }
 
 @Controller('ai/insights')
@@ -132,6 +134,7 @@ export class InsightsController {
       conteudo,
       origem: (body.origem || '').trim() || 'Manual',
       memoriaId: (body.memoriaId || '').trim() || undefined,
+      modelo: body.modelo,
     });
     return { insights };
   }
@@ -148,6 +151,7 @@ export class InsightsController {
     @CurrentUser() user: AuthenticatedUser,
     @RepositorioAtual() repositorioId: string | null,
     @OrganizacaoAtual() organizacaoId: string | null,
+    @Body() body: { modelo?: string } = {},
   ): Promise<{ insights: InsightDto[] }> {
     const [notas, documentos] = await Promise.all([
       this.vault.recentes(user.empresaId, repositorioId, 12),
@@ -181,6 +185,7 @@ export class InsightsController {
         titulo: 'Conteúdo recente do Repositório',
         conteudo: partes.join('\n\n'),
         origem: 'Repositório',
+        modelo: body.modelo,
       },
     );
     return { insights };

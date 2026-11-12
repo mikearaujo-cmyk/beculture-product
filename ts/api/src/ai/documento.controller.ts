@@ -28,6 +28,8 @@ interface UploadedFileLike {
 }
 
 interface DocumentoBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   texto?: string;
 }
 
@@ -98,7 +100,7 @@ export class DocumentoController {
     }
 
     const userPrompt = buildDocumentoUser(texto, titulosMemoria, titulosVault);
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_DOCUMENTO, userPrompt, 8000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_DOCUMENTO, userPrompt, 8000, undefined, { modelo: body.modelo });
     const { titulo, conteudo, resumo } = parseDocumento(text);
 
     let salvo = false;
@@ -125,6 +127,7 @@ export class DocumentoController {
       origem: 'Documento',
       memoriaId,
       max: MAX_INSIGHTS_DOCUMENTO,
+      modelo: body.modelo,
     });
 
     return { titulo, conteudo, resumo, salvo, memoriaId, insightsGerados: gerados.length };

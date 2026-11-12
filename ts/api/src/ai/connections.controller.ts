@@ -13,9 +13,13 @@ import { ReorderConnectionsDto } from './dto/reorder.dto';
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { CurrentUser } from '@/common/current-user.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
+import {
+  PermissoesGuard,
+  RequerPermissao,
+} from '@/acesso/permissoes.guard';
 
 @Controller('ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissoesGuard)
 export class AiConnectionsController {
   constructor(private readonly connections: AiConnectionsService) {}
 
@@ -27,12 +31,14 @@ export class AiConnectionsController {
 
   /** PUT /ai/connections → adiciona um modelo à fila a partir de uma chave. */
   @Put('connections')
+  @RequerPermissao('configuracoes.gerenciar')
   add(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetConnectionDto) {
     return this.connections.upsert(user.empresaId, dto);
   }
 
   /** PUT /ai/connections/order → grava a nova ordem de prioridade. */
   @Put('connections/order')
+  @RequerPermissao('configuracoes.gerenciar')
   reorder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ReorderConnectionsDto,
@@ -42,6 +48,7 @@ export class AiConnectionsController {
 
   /** DELETE /ai/connections/:id → remove um modelo da fila. */
   @Delete('connections/:id')
+  @RequerPermissao('configuracoes.gerenciar')
   async remove(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

@@ -16,6 +16,8 @@ import { toast } from "sonner";
 import clsx from "clsx";
 
 import { type ModoBusca } from "@/services/api/prompt";
+import { useModeloIa } from "@/app/contexts/modelo-ia/context";
+import { SeletorModelo } from "@/components/shared/SeletorModelo";
 import { MemoriaTextarea } from "@/components/shared/MemoriaMentions";
 import { useTranslation } from "react-i18next";
 import { useAssistente } from "@/app/contexts/assistente/context";
@@ -45,7 +47,11 @@ type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 export function PromptBar() {
   const { t, i18n } = useTranslation();
   const { perguntar, loading, expandido } = useAssistente();
-  const [modo, setModo] = useState<ModoBusca>("vault");
+  // Fonte sempre automática: a IA procura primeiro no Repositório e, se a
+  // informação não estiver lá, pesquisa na web (ver prompt.controller).
+  const modo: ModoBusca = "auto";
+  // Seletor de modelo só no B2C com modelos BeCulture.
+  const { habilitado: seletorDeModelo } = useModeloIa();
   const [value, setValue] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [status, setStatus] = useState<{ msg: string; cls: "" | "ok" | "err" }>({
@@ -58,24 +64,6 @@ export function PromptBar() {
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const MODOS: { id: ModoBusca; label: string; title: string }[] = [
-    {
-      id: "vault",
-      label: t("chrome.modeMemory"),
-      title: t("chrome.modeMemoryTitle"),
-    },
-    {
-      id: "web",
-      label: t("chrome.modeWeb"),
-      title: t("chrome.modeWebTitle"),
-    },
-    {
-      id: "auto",
-      label: t("chrome.modeAuto"),
-      title: t("chrome.modeAutoTitle"),
-    },
-  ];
 
   const ROTULO: Record<ModoBusca, string> = {
     vault: t("chrome.searchingMemory"),
@@ -182,14 +170,9 @@ export function PromptBar() {
     if (!texto || loading) return;
     if (listening) recognitionRef.current?.stop();
 
-    const usarAnexo = arquivo && modo !== "web";
-    flashStatus(usarAnexo ? "lendo anexo e buscando…" : ROTULO[modo]);
+    flashStatus(arquivo ? "lendo anexo e buscando…" : ROTULO[modo]);
 
-    const r = await perguntar({
-      texto,
-      modo,
-      arquivo: modo !== "web" ? arquivo : null,
-    });
+    const r = await perguntar({ texto, modo, arquivo });
 
     if (!r.ok) {
       flashStatus("✕ " + (r.erro || t("chrome.searchError")), "err");
@@ -217,29 +200,22 @@ export function PromptBar() {
       />
 
       <div className="flex items-stretch">
-        {/* Seletor de fonte (texto horizontal, grudado à barra) */}
-        <div className="dark:border-dark-500 dark:bg-dark-700 flex shrink-0 overflow-hidden rounded-l-lg border border-r-0 border-gray-200 bg-gray-100/70">
-          {MODOS.map((m, i) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setModo(m.id)}
-              title={m.title}
-              className={clsx(
-                "flex items-center justify-center px-2 text-[11px] font-medium tracking-wide transition-colors",
-                i > 0 && "dark:border-dark-500 border-l border-gray-200",
-                modo === m.id
-                  ? "bg-primary-500/15 text-primary-600 dark:text-primary-400"
-                  : "dark:text-dark-300 dark:hover:text-dark-100 text-gray-400 hover:text-gray-600",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+        {/* B2C com modelos BeCulture: seletor de modelo grudado à barra (vale
+            para todas as ações de IA até o usuário trocar). Nas demais
+            versões fica só o campo de busca. */}
+        {seletorDeModelo && (
+          <div className="dark:border-dark-500 dark:bg-dark-700 flex shrink-0 items-center rounded-l-lg border border-r-0 border-gray-200 bg-gray-100/70 px-0.5">
+            <SeletorModelo />
+          </div>
+        )}
 
         {/* Barra de busca */}
-        <div className="dark:border-dark-500 dark:bg-dark-700 focus-within:border-primary-500/60 flex min-w-0 flex-1 items-end gap-1 rounded-r-lg border border-gray-200 bg-gray-100/70 px-1.5 py-1 transition-colors">
+        <div
+          className={clsx(
+            "dark:border-dark-500 dark:bg-dark-700 focus-within:border-primary-500/60 flex min-w-0 flex-1 items-end gap-1 border border-gray-200 bg-gray-100/70 px-1.5 py-1 transition-colors",
+            seletorDeModelo ? "rounded-r-lg" : "rounded-lg",
+          )}
+        >
           <button
             type="button"
             onClick={() => fileRef.current?.click()}

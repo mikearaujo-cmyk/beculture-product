@@ -17,6 +17,8 @@ import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 
 interface ArtigoBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   tema?: string;
   contexto?: string;
   fontes?: string[];
@@ -95,7 +97,7 @@ export class ArtigoController {
         titulosVault,
       });
 
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_ARTIGO, userPrompt, 6000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_ARTIGO, userPrompt, 6000, undefined, { modelo: body.modelo });
     return parseArtigo(text, tema);
   }
 }

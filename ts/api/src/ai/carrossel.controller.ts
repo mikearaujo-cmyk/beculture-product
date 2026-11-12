@@ -22,6 +22,8 @@ import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 
 interface CarrosselBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   tema?: string;
   contexto?: string;
   estilo?: string;
@@ -102,7 +104,7 @@ export class CarrosselController {
         titulosVault,
       });
 
-    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_CARROSSEL, userPrompt, 8000);
+    const { text } = await this.ai.completar(user.empresaId, user.id, SYSTEM_CARROSSEL, userPrompt, 8000, undefined, { modelo: body.modelo });
     return parseCarrossel(text, tema);
   }
 }

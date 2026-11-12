@@ -142,9 +142,10 @@ export class CompaniesService {
   async registrar(dto: RegistrarDto): Promise<CadastroResult> {
     const organizacao =
       dto.organizacaoNome?.trim() || dto.nome.trim() || 'Minha organização';
+    const b2b = dto.modalidadeIa === 'organizacao';
 
-    return this.cadastrar({
-      tipoPessoa: 'pf',
+    const result = await this.cadastrar({
+      tipoPessoa: b2b ? 'pj' : 'pf',
       // Placeholder: cobrança real ainda não entra neste fluxo.
       documento: '000.000.000-00',
       razaoSocial: organizacao,
@@ -162,6 +163,26 @@ export class CompaniesService {
         senha: dto.senha,
       },
     });
+
+    // Modalidade comercial/IA vinda da seleção de planos. Cobrança real não
+    // existe aqui: só gravamos o contexto que dirige onboarding e regras de IA.
+    if (dto.modalidadeIa) {
+      const agora = new Date().toISOString();
+      const empresa = await this.prisma.empresa.update({
+        where: { id: result.empresa.id },
+        data: {
+          modalidadeComercial: b2b ? 'b2b' : 'b2c',
+          modalidadeIa: dto.modalidadeIa,
+          planoIa:
+            dto.modalidadeIa === 'beculture'
+              ? (dto.planoIa ?? 'essencial')
+              : null,
+          onboardingEtapas: { conta: agora, plano: agora },
+        },
+      });
+      return { ...result, empresa };
+    }
+    return result;
   }
 
   async emailJaCadastrado(email: string): Promise<boolean> {

@@ -1,4 +1,11 @@
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Cadastro mínimo (nome, e-mail, senha, organização).
@@ -28,4 +35,19 @@ export class RegistrarDto {
   @IsString()
   @MaxLength(160)
   organizacaoNome?: string;
+
+  /**
+   * Modalidade escolhida na seleção de planos. Opcional para manter
+   * compatibilidade: sem ela a conta nasce "legada" (comportamento anterior).
+   *   beculture   → B2C com modelos BeCulture (usa planoIa)
+   *   byok        → B2C com chaves próprias
+   *   organizacao → B2B SaaS (chaves da organização)
+   */
+  @IsOptional()
+  @IsIn(['beculture', 'byok', 'organizacao'])
+  modalidadeIa?: 'beculture' | 'byok' | 'organizacao';
+
+  @IsOptional()
+  @IsIn(['essencial', 'pro'])
+  planoIa?: 'essencial' | 'pro';
 }

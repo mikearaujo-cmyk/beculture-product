@@ -43,7 +43,7 @@ export function Sidebar() {
         <div className="relative min-h-0 flex-1">
           <Menu />
         </div>
-        {/* Rodapé: acesso secundário à pasta local do protótipo. */}
+        {/* Rodapé: Backoffice e pasta local do protótipo. */}
         <PastaLocalButton />
       </div>
 

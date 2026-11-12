@@ -17,7 +17,6 @@ import {
   extrairFontesVault,
   montarBlocoMemoria,
   MEMORIA_MAX_NOTAS,
-  SYSTEM_ROTA,
   SYSTEM_VAULT,
   SYSTEM_WEB,
   type HistoricoTurno,
@@ -44,6 +43,8 @@ interface UploadedFileLike {
 }
 
 interface PromptBody {
+  /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+  modelo?: string;
   texto?: string;
   modo?: string;
   historico?: string; // JSON string: HistoricoTurno[]
@@ -137,6 +138,17 @@ function parseHistorico(raw: string | undefined): HistoricoTurno[] {
   }
 }
 
+/**
+ * Modo Auto (Repositório primeiro): marcador que a IA devolve quando o
+ * Repositório não tem a informação — aí a pergunta segue para a web.
+ */
+const MARCADOR_SEM_INFORMACAO = 'SEM_INFORMACAO_NO_REPOSITORIO';
+const REGRA_SEM_INFORMACAO = `IMPORTANTE (busca automática): se a MEMÓRIA, as REFERÊNCIAS e o anexo NÃO contiverem a informação necessária para responder à pergunta, NÃO responda com suposições — responda APENAS com a linha ${MARCADOR_SEM_INFORMACAO} e nada mais. A pergunta será então pesquisada na web.`;
+
+function semInformacaoNoRepositorio(texto: string): boolean {
+  return texto.trim().toUpperCase().startsWith(MARCADOR_SEM_INFORMACAO);
+}
+
 @Controller('ai')
 export class PromptController {
   private readonly logger = new Logger(PromptController.name);
@@ -224,26 +236,11 @@ export class PromptController {
       };
     };
 
-    // Modo Auto: o modelo decide entre Memória e Web.
-    if (modo === 'auto') {
-      try {
-        // Sem diretrizes: este passo não gera resposta, só escolhe a fonte —
-        // e as regras de conduta atrapalhariam a saída de uma palavra só.
-        const cls = await this.ai.completar(
-          user.empresaId,
-          user.id,
-          SYSTEM_ROTA,
-          texto,
-          8,
-          'completar',
-          { semDiretrizes: true },
-        );
-        modo = /web/i.test(cls.text) ? 'web' : 'vault';
-      } catch (err) {
-        this.logger.warn(`Falha ao classificar rota (Auto), assumindo Memória: ${String(err)}`);
-        modo = 'vault';
-      }
-    }
+    // Modo Auto: Repositório primeiro. A IA responde com o que está no
+    // Repositório; se a informação não estiver lá, a mesma pergunta vai para a
+    // web (ver `semInformacaoNoRepositorio` mais abaixo).
+    const autoRepositorioPrimeiro = modo === 'auto';
+    if (autoRepositorioPrimeiro) modo = 'vault';
 
     // Títulos das notas do vault: alvos dos [[wikilinks]] do bloco "Conexões no
     // Vault" que fecha a resposta (vale para os dois modos).
@@ -256,13 +253,13 @@ export class PromptController {
 
     // Modo Web: busca na internet com fontes citadas. Anexo é ignorado no Web
     // (igual ao Confi).
-    if (modo === 'web') {
+    const responderWeb = async () => {
       const { text, fontes, truncated } = await this.ai.completarWeb(
         user.empresaId,
         user.id,
         comAgente(SYSTEM_WEB),
         buildWebUser({ texto, historico, titulosVault }),
-        4000,
+        4000, { modelo: body.modelo },
       );
       const separado = separarArquivos(text.trim());
       let resposta = separado.resposta;
@@ -282,15 +279,16 @@ export class PromptController {
         respostaAdicional,
       });
       return {
-        tipo: 'resposta',
+        tipo: 'resposta' as const,
         resposta,
         fontes,
-        origem: 'web',
+        origem: 'web' as const,
         ...salvo,
         agente,
         arquivos: separado.arquivos,
       };
-    }
+    };
+    if (modo === 'web') return responderWeb();
 
     // Modo Memória (vault): referência do cliente + anexo opcional (arquivo de
     // texto lido aqui e injetado no contexto). As DIRETRIZES não são montadas
@@ -341,6 +339,15 @@ export class PromptController {
       this.logger.warn(`Falha ao recuperar notas do Vault: ${String(err)}`);
     }
 
+    if (
+      autoRepositorioPrimeiro &&
+      !notasBloco.trim() &&
+      !anexo &&
+      !(referencia || '').trim()
+    ) {
+      return responderWeb();
+    }
+
     const userPrompt = buildVaultUser({
       texto,
       notasBloco,
@@ -354,10 +361,17 @@ export class PromptController {
     const { text, truncated } = await this.ai.completar(
       user.empresaId,
       user.id,
-      comAgente(SYSTEM_VAULT),
+      comAgente(
+        autoRepositorioPrimeiro
+          ? `${SYSTEM_VAULT}\n\n${REGRA_SEM_INFORMACAO}`
+          : SYSTEM_VAULT,
+      ),
       userPrompt,
-      4000,
+      4000, undefined, { modelo: body.modelo },
     );
+    if (autoRepositorioPrimeiro && semInformacaoNoRepositorio(text)) {
+      return responderWeb();
+    }
 
     const { resposta: limpa, fontes: citadas } = extrairFontesVault(text);
     // Só devolvemos como fonte títulos de notas que existem de fato (o modelo

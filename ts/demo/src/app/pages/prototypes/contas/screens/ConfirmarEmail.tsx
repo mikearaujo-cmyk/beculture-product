@@ -54,7 +54,7 @@ export default function ConfirmarEmail() {
                 variant="outlined"
                 color="primary"
                 className="mt-3 w-full"
-                onClick={() => navigate("../organizacao")}
+                onClick={() => navigate("../plano")}
               >
                 Já confirmei o e-mail
               </Button>

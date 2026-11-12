@@ -6,8 +6,19 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { AiProvider } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import type {
+  AiProvider,
+  OrigemCredencial,
+  PlanoIaB2c,
+} from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import { ModalidadeService } from './modalidade.service';
+import { PlataformaIaService } from './plataforma.service';
+import { FranquiaService } from './franquia.service';
+import { ORQUESTRADOR_ID, rotearAutomatico } from './orquestrador';
+import { PrototipoIaService } from './prototipo.service';
+import { isKnownModelFor } from './catalogo';
 import { getProvider, type LlmWebResult } from './providers';
 import { AiConnectionsService } from './connections.service';
 import {
@@ -33,6 +44,8 @@ export interface ChatInput {
   squadId: string;
   agentId?: string;
   messages: ChatTurn[];
+  /** Modelo escolhido no seletor ("auto" = orquestrador). */
+  modelo?: string;
 }
 
 /** Um modelo candidato a atender a chamada, na ordem de prioridade do tenant. */
@@ -43,6 +56,15 @@ interface CandidatoIa {
   model: string;
   apiKey: string;
   managed: boolean;
+  /** Dono da credencial (plataforma, usuário ou organização). */
+  origem?: OrigemCredencial;
+  /** Provedor da chave operacional do protótipo, quando ela executou. */
+  prototipoProvider?: string;
+  planoIa?: PlanoIaB2c;
+  /** Infraestrutura que executa: chave própria, operacional ou .env. */
+  execucao?: 'propria' | 'prototipo' | 'ambiente';
+  /** "auto" (orquestrador) ou o id do modelo pedido no seletor. */
+  solicitadoComo?: string;
 }
 
 /** Enquadramento da plataforma, anexado ao prompt da persona. */
@@ -62,6 +84,10 @@ export class AiService {
     private readonly uso: UsoTokensService,
     private readonly vault: VaultService,
     private readonly memorias: MemoriasService,
+    private readonly modalidade: ModalidadeService,
+    private readonly plataforma: PlataformaIaService,
+    private readonly franquia: FranquiaService,
+    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -231,43 +257,151 @@ ${PLATFORM_FRAMING}${conexoes}`;
   }
 
   /**
-   * Resolve os modelos de IA do tenant em ordem de prioridade:
-   * 1) Conexões BYOK da empresa (a fila definida em Configurações → IA); senão
-   * 2) Modo gerenciado: nossa chave Anthropic, apenas enquanto o trial está ativo.
+   * Resolve os candidatos de TEXTO de uma chamada, em ordem de prioridade.
    *
-   * A ordem importa: o primeiro é o principal e os seguintes são os reservas do
-   * failover — se um modelo cair, o próximo assume.
+   * O PEDIDO vem do que a conta pode usar — B2C BeCulture: catálogo publicado
+   * no plano; BYOK/B2B/legado: fila (demonstrativa) da conta — e do `modelo`
+   * escolhido no seletor da ação:
+   *   - `'auto'`         → Automático (orquestrador) escolhe entre os pedidos
+   *   - id de um modelo  → esse modelo vai à frente (precisa estar disponível)
+   *   - ausente          → ordem da fila (chamadas internas)
+   *
+   * A EXECUÇÃO é sempre da chave operacional do Backoffice: o modelo pedido
+   * roda ele mesmo se a chave o executa; senão, roda o modelo padrão
+   * operacional. Pedido × efetivo ficam registrados no consumo.
    */
-  private async resolveCandidatos(empresaId: string): Promise<CandidatoIa[]> {
-    const conns = await this.connections.listDecrypted(empresaId);
-    if (conns.length > 0) {
-      return conns.map((c) => ({ ...c, managed: false }));
-    }
-
-    const managedKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (managedKey) {
-      const assinatura = await this.prisma.assinatura.findUnique({
-        where: { empresaId },
+  private async resolveCandidatos(
+    empresaId: string,
+    usuarioId?: string,
+    tamanhoEntrada = 0,
+    modelo?: string,
+  ): Promise<CandidatoIa[]> {
+    const ctx = await this.modalidade.contexto(empresaId);
+    // O seletor de modelos só existe no B2C BeCulture: nas demais
+    // modalidades a fila da conta define a ordem e `modelo` é ignorado.
+    if (ctx.modalidade !== 'beculture') modelo = undefined;
+    const operacionais = await this.prototipo.chavesTexto();
+    const semChaveOperacional = () =>
+      new ServiceUnavailableException({
+        statusCode: 503,
+        codigo: 'sem_chave_prototipo',
+        message:
+          'O protótipo está sem chave de API operacional. Cadastre uma em Backoffice → Configuração de API.',
       });
-      const trialAtivo =
-        !!assinatura &&
-        assinatura.status === 'trial' &&
-        assinatura.trialEndsAt.getTime() > Date.now();
-      if (trialAtivo) {
-        return [
-          {
-            provider: 'anthropic',
-            model: this.config.get<string>('AI_MODEL', 'claude-opus-4-8'),
-            apiKey: managedKey,
-            managed: true,
-          },
-        ];
+
+    // Pedidos possíveis da conta + metadados comerciais de cada contexto.
+    let pedidos: {
+      provider: string;
+      model: string;
+      limiteTokensCiclo: number | null;
+    }[];
+    let base: Pick<CandidatoIa, 'managed' | 'origem' | 'planoIa'>;
+
+    if (ctx.modalidade === 'beculture') {
+      // Catálogo publicado; a fila própria (de um BYOK anterior) nunca entra.
+      const plano = ctx.planoIa ?? 'essencial';
+      pedidos = (await this.plataforma.disponiveisNoPlano(plano, 'text')).map(
+        (m) => ({
+          provider: m.provider,
+          model: m.model,
+          limiteTokensCiclo:
+            m.planos.find((p) => p.plano === plano)?.limiteTokensCiclo ?? null,
+        }),
+      );
+      if (pedidos.length === 0) {
+        throw new ServiceUnavailableException({
+          statusCode: 503,
+          codigo: 'sem_modelos_plataforma',
+          message:
+            'Nenhum modelo BeCulture está disponível no seu plano no momento. A disponibilização é feita pela administração da plataforma.',
+        });
+      }
+      this.exigirModeloDisponivel(modelo, pedidos);
+      if (usuarioId) {
+        pedidos = await this.franquia.filtrarComSaldo(usuarioId, plano, pedidos);
+      }
+      base = { managed: true, origem: 'plataforma', planoIa: plano };
+    } else {
+      // BYOK, B2B e legadas: fila demonstrativa da conta (ver
+      // PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS).
+      pedidos = (await this.connections.listPublic(empresaId))
+        .filter((c) => c.ativa && c.status !== 'invalida')
+        .map((c) => ({
+          provider: c.provider,
+          model: c.model,
+          limiteTokensCiclo: null,
+        }));
+      this.exigirModeloDisponivel(modelo, pedidos);
+      base = {
+        managed: true,
+        origem:
+          ctx.modalidade === 'legado'
+            ? undefined
+            : this.modalidade.origemPropria(ctx.modalidade),
+      };
+    }
+    if (operacionais.length === 0) throw semChaveOperacional();
+
+    const automatico = modelo === ORQUESTRADOR_ID;
+    const especifico = modelo && !automatico ? modelo : undefined;
+    if (especifico) {
+      // O escolhido vai à frente; os demais seguem como reserva do failover.
+      pedidos = [
+        ...pedidos.filter((p) => p.model === especifico),
+        ...pedidos.filter((p) => p.model !== especifico),
+      ];
+    }
+    const solicitado = automatico ? ORQUESTRADOR_ID : especifico;
+    const execucao = (o: { fonte: string }) =>
+      o.fonte === 'backoffice' ? ('prototipo' as const) : ('ambiente' as const);
+
+    const executaveis: CandidatoIa[] = [];
+    for (const p of pedidos) {
+      const op = operacionais.find((o) => o.provider === p.provider);
+      if (op && isKnownModelFor(op.provider, 'text', p.model)) {
+        executaveis.push({
+          ...base,
+          provider: op.provider as AiProvider,
+          model: p.model,
+          apiKey: op.apiKey,
+          prototipoProvider: op.provider,
+          solicitadoComo: solicitado ?? p.model,
+          execucao: execucao(op),
+        });
       }
     }
+    // Pedido que a chave operacional não executa (ex.: modelo demonstrativo)
+    // cai no modelo padrão operacional, mantendo o pedido registrado.
+    const pedidoPrincipal = solicitado ?? pedidos[0]?.model;
+    const usaPadrao =
+      executaveis.length === 0 ||
+      (!!especifico && executaveis[0].model !== especifico);
+    const padrao: CandidatoIa[] = operacionais
+      .filter((o) => o.model)
+      .map((o) => ({
+        ...base,
+        provider: o.provider as AiProvider,
+        model: o.model,
+        apiKey: o.apiKey,
+        prototipoProvider: o.provider,
+        solicitadoComo: pedidoPrincipal,
+        execucao: execucao(o),
+      }));
+    const lista = usaPadrao ? [...padrao, ...executaveis] : executaveis;
+    return automatico ? rotearAutomatico(lista, tamanhoEntrada) : lista;
+  }
 
-    throw new ServiceUnavailableException(
-      'Nenhuma IA conectada. Conecte um provedor de IA em Conexões.',
-    );
+  /** Um modelo específico só vale se estiver entre os disponíveis da conta. */
+  private exigirModeloDisponivel(
+    modelo: string | undefined,
+    pedidos: { model: string }[],
+  ): void {
+    if (!modelo || modelo === ORQUESTRADOR_ID) return;
+    if (!pedidos.some((p) => p.model === modelo)) {
+      throw new BadRequestException(
+        'O modelo escolhido não está disponível para esta conta. Escolha outro no seletor de modelos.',
+      );
+    }
   }
 
   /**
@@ -277,14 +411,22 @@ ${PLATFORM_FRAMING}${conexoes}`;
   private async comFailover<T>(
     empresaId: string,
     executar: (candidato: CandidatoIa) => Promise<T>,
-  ): Promise<T> {
-    const candidatos = await this.resolveCandidatos(empresaId);
+    usuarioId?: string,
+    tamanhoEntrada = 0,
+    modelo?: string,
+  ): Promise<{ valor: T; candidato: CandidatoIa }> {
+    const candidatos = await this.resolveCandidatos(
+      empresaId,
+      usuarioId,
+      tamanhoEntrada,
+      modelo,
+    );
     let ultimoErro: unknown;
 
     for (let i = 0; i < candidatos.length; i++) {
       const candidato = candidatos[i];
       try {
-        return await executar(candidato);
+        return { valor: await executar(candidato), candidato };
       } catch (err) {
         ultimoErro = err;
         const tentarProximo =
@@ -317,6 +459,34 @@ ${PLATFORM_FRAMING}${conexoes}`;
     if (candidato.id && ehChaveRejeitada(err)) {
       void this.connections.marcarInvalida(candidato.id);
     }
+    if (candidato.prototipoProvider && ehChaveRejeitada(err)) {
+      void this.prototipo.marcarInvalida(candidato.prototipoProvider);
+    }
+  }
+
+  /** Grava o consumo com o modelo efetivo e o dono da credencial usada. */
+  private registrarUso(
+    empresaId: string,
+    usuarioId: string,
+    candidato: CandidatoIa,
+    usage: { entrada: number; saida: number },
+    fonte: string,
+    execucaoId?: string,
+  ): void {
+    this.uso.registrar({
+      empresaId,
+      usuarioId,
+      entrada: usage.entrada,
+      saida: usage.saida,
+      fonte,
+      provider: candidato.provider,
+      model: candidato.model,
+      origem: candidato.origem,
+      solicitadoComo: candidato.solicitadoComo ?? candidato.model,
+      planoIa: candidato.planoIa,
+      execucaoId,
+      execucao: candidato.execucao,
+    });
   }
 
   /**
@@ -334,7 +504,14 @@ ${PLATFORM_FRAMING}${conexoes}`;
       input.empresaId,
       await this.buildSystem(input),
     );
-    const candidatos = await this.resolveCandidatos(input.empresaId);
+    const ultima = messages[messages.length - 1]?.text ?? '';
+    const candidatos = await this.resolveCandidatos(
+      input.empresaId,
+      input.usuarioId,
+      ultima.length,
+      input.modelo,
+    );
+    const execucaoId = randomUUID();
     let ultimoErro: unknown;
 
     for (let i = 0; i < candidatos.length; i++) {
@@ -347,13 +524,14 @@ ${PLATFORM_FRAMING}${conexoes}`;
           system,
           messages,
           onUsage: (u) =>
-            this.uso.registrar({
-              empresaId: input.empresaId,
-              usuarioId: input.usuarioId,
-              entrada: u.entrada,
-              saida: u.saida,
-              fonte: 'chat',
-            }),
+            this.registrarUso(
+              input.empresaId,
+              input.usuarioId,
+              candidato,
+              u,
+              'chat',
+              execucaoId,
+            ),
         });
         for await (const chunk of stream) {
           emitiu = true;
@@ -416,28 +594,31 @@ ${PLATFORM_FRAMING}${conexoes}`;
      * usuário (ex.: o classificador de rota do Prompt, que responde uma única
      * palavra). Em tudo que vira resposta, as diretrizes entram.
      */
-    opts: { semDiretrizes?: boolean } = {},
+    opts: {
+      semDiretrizes?: boolean;
+      /** Modelo escolhido no seletor da ação ("auto" = orquestrador). */
+      modelo?: string;
+    } = {},
   ): Promise<{ text: string; truncated: boolean }> {
     const systemFinal = opts.semDiretrizes
       ? system
       : await this.comDiretrizes(empresaId, system);
-    const result = await this.comFailover(empresaId, (candidato) =>
-      getProvider(candidato.provider).complete({
-        apiKey: candidato.apiKey,
-        model: candidato.model,
-        system: systemFinal,
-        user,
-        maxTokens,
-      }),
+    const { valor: result, candidato } = await this.comFailover(
+      empresaId,
+      (c) =>
+        getProvider(c.provider).complete({
+          apiKey: c.apiKey,
+          model: c.model,
+          system: systemFinal,
+          user,
+          maxTokens,
+        }),
+      usuarioId,
+      user.length,
+      opts.modelo,
     );
     if (result.usage) {
-      this.uso.registrar({
-        empresaId,
-        usuarioId,
-        entrada: result.usage.entrada,
-        saida: result.usage.saida,
-        fonte,
-      });
+      this.registrarUso(empresaId, usuarioId, candidato, result.usage, fonte);
     }
     return { text: result.text, truncated: result.truncated };
   }
@@ -453,36 +634,37 @@ ${PLATFORM_FRAMING}${conexoes}`;
     system: string,
     user: string,
     maxTokens = 4000,
+    opts: { modelo?: string } = {},
   ): Promise<LlmWebResult> {
     const systemFinal = await this.comDiretrizes(empresaId, system);
-    const result = await this.comFailover(empresaId, (candidato) => {
-      const provider = getProvider(candidato.provider);
-      const params = {
-        apiKey: candidato.apiKey,
-        model: candidato.model,
-        system: systemFinal,
-        user,
-        maxTokens,
-      };
-      return provider.completeWeb
-        ? provider.completeWeb(params)
-        : provider.complete(params).then(
-            (r): LlmWebResult => ({
-              text: r.text,
-              fontes: [],
-              truncated: r.truncated,
-              usage: r.usage,
-            }),
-          );
-    });
+    const { valor: result, candidato } = await this.comFailover(
+      empresaId,
+      (c) => {
+        const provider = getProvider(c.provider);
+        const params = {
+          apiKey: c.apiKey,
+          model: c.model,
+          system: systemFinal,
+          user,
+          maxTokens,
+        };
+        return provider.completeWeb
+          ? provider.completeWeb(params)
+          : provider.complete(params).then(
+              (r): LlmWebResult => ({
+                text: r.text,
+                fontes: [],
+                truncated: r.truncated,
+                usage: r.usage,
+              }),
+            );
+      },
+      usuarioId,
+      user.length,
+      opts.modelo,
+    );
     if (result.usage) {
-      this.uso.registrar({
-        empresaId,
-        usuarioId,
-        entrada: result.usage.entrada,
-        saida: result.usage.saida,
-        fonte: 'web',
-      });
+      this.registrarUso(empresaId, usuarioId, candidato, result.usage, 'web');
     }
     return result;
   }

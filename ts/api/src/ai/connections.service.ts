@@ -3,6 +3,8 @@ import type { AiConnectionStatus, AiProvider } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CryptoService } from './crypto';
 import { AiCredentialsService } from './credentials.service';
+import { ModalidadeService } from './modalidade.service';
+import { PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS } from './prototipo.service';
 import { isKnownModelFor, isLlmProvider } from './catalogo';
 
 /** Visão pública de um modelo na fila de texto (NUNCA inclui a chave crua). */
@@ -14,6 +16,8 @@ export interface PublicConnection {
   model: string;
   keyLast4: string;
   status: AiConnectionStatus;
+  /** A chave da conexão está ativa (desligada = fora da fila). */
+  ativa: boolean;
   /** Posição na fila de prioridade (0 = principal). */
   priority: number;
 }
@@ -44,6 +48,7 @@ export class AiConnectionsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly credentials: AiCredentialsService,
+    private readonly modalidade: ModalidadeService,
   ) {}
 
   /** Modelos do tenant em ordem de prioridade, sem as chaves. */
@@ -70,6 +75,7 @@ export class AiConnectionsService {
     empresaId: string,
     input: SetConnectionInput,
   ): Promise<PublicConnection> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     const cred = await this.credentials.exigirDaEmpresa(
       empresaId,
       input.credentialId,
@@ -107,6 +113,7 @@ export class AiConnectionsService {
 
   /** Remove um modelo da fila e reindexa as posições restantes. */
   async remove(empresaId: string, id: string): Promise<void> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     const { count } = await this.prisma.aiConnection.deleteMany({
       where: { id, empresaId },
     });
@@ -115,6 +122,7 @@ export class AiConnectionsService {
 
   /** Grava a nova ordem de prioridade. */
   async reorder(empresaId: string, ids: string[]): Promise<PublicConnection[]> {
+    await this.modalidade.assertPodeGerenciarChaves(empresaId);
     await this.prisma.$transaction(
       ids.map((id, index) =>
         this.prisma.aiConnection.updateMany({
@@ -131,8 +139,14 @@ export class AiConnectionsService {
    * descriptografadas. Só entram provedores LLM (anthropic/openai).
    */
   async listDecrypted(empresaId: string): Promise<DecryptedConnection[]> {
+    // PROTÓTIPO: as chaves cadastradas em Configurações → IA & API (BYOK, B2B
+    // e legado) são DEMONSTRATIVAS e nunca executam chamadas. A execução real
+    // é da chave operacional do Backoffice (PrototipoIaService). No produto,
+    // remova este retorno para voltar a usar as chaves da conta.
+    if (PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS) return [];
     const rows = await this.prisma.aiConnection.findMany({
-      where: { empresaId },
+      // Chave desativada pelo dono fica guardada, mas fora da fila.
+      where: { empresaId, credential: { ativa: true } },
       orderBy: [{ priority: 'asc' }, { criadoEm: 'asc' }],
       include: { credential: true },
     });
@@ -181,6 +195,7 @@ export class AiConnectionsService {
       nome: string | null;
       keyLast4: string;
       status: AiConnectionStatus;
+      ativa: boolean;
     };
   }): PublicConnection {
     return {
@@ -191,6 +206,7 @@ export class AiConnectionsService {
       model: c.model,
       keyLast4: c.credential.keyLast4,
       status: c.credential.status,
+      ativa: c.credential.ativa,
       priority: c.priority,
     };
   }
