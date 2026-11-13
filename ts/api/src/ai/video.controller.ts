@@ -9,7 +9,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrototipoIaService } from './prototipo.service';
 import { AiService } from './ai.service';
 import { AiMediaConnectionsService } from './media-connections.service';
 import { ehChaveRejeitada, ehFalhaDeProvedor } from './falha-provedor';
@@ -61,7 +60,6 @@ export class VideoController {
     private readonly ai: AiService,
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
-    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -86,8 +84,8 @@ export class VideoController {
         outrosProvedores: [...new Set(fila.map((c) => c.provider))],
       };
     }
-    // Sem fila própria: chave operacional do protótipo (Backoffice → .env).
-    const key = (await this.prototipo.chave('heygen'))?.apiKey ?? '';
+    // Sem fila própria: chave do servidor (.env).
+    const key = this.config.get<string>('HEYGEN_API_KEY') ?? '';
     return { chaves: key ? [{ apiKey: key }] : [], outrosProvedores: [] };
   }
 

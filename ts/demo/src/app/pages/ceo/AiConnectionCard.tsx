@@ -68,6 +68,8 @@ import {
   type CatalogProvider,
 } from "@/services/api/aiCredential";
 import {
+  autorizarByokAposCota,
+  revogarByokAposCota,
   ROTULO_ORIGEM,
   ROTULO_PLANO,
   useResumoContaIa,
@@ -75,7 +77,9 @@ import {
   type ResumoContaIa,
 } from "@/services/api/modalidade";
 import { EstadoIaNaoConfigurada } from "./ia/EstadoIaNaoConfigurada";
-import { SectionCard } from "./configuracoes-ui";
+import { SectionCard, ToggleRow } from "./configuracoes-ui";
+import { toast } from "sonner";
+import { EVENTO_CONTA_IA_ALTERADA } from "@/utils/cotaEsgotada";
 import {
   addAiConnection,
   listAiConnections,
@@ -278,9 +282,9 @@ function provedoresDaModalidade(
  * IA & API — central de integrações com provedores de IA. A estrutura é a
  * mesma para todas as contas; o que muda por modalidade são os dados e as
  * ações (as regras são validadas também no backend):
- *   B2C BeCulture → modelos gerenciados pela BeCulture, somente leitura
- *   B2C BYOK      → chaves do próprio usuário, gestão completa
- *   B2B           → chaves da organização, gestão por quem administra
+ *   B2C → chaves do próprio usuário (BYOK), gestão completa. Os modelos
+ *         BeCulture ficam no seletor do topo, não aqui.
+ *   B2B → chaves da organização, gestão por quem administra
  *
  * `onAlteracao` avisa quem embute o card (ex.: o onboarding) que chaves ou
  * modelos mudaram, para recalcular a prontidão.
@@ -304,9 +308,6 @@ export function AiConnectionCard({
     return (
       <p className="dark:text-dark-300 text-sm text-gray-400">Carregando…</p>
     );
-  }
-  if (conta.resumo?.modalidade === "beculture") {
-    return <ModelosGerenciadosBeCulture resumo={conta.resumo} />;
   }
   return (
     <ChavesProprias
@@ -381,14 +382,13 @@ function ChavesProprias({
   return (
     <div>
       {exibir === "tudo" && <OrigemCredenciais origem={origem} />}
-      {resumo && (
+      {resumo?.modalidade === "beculture" && (
         <NotaPrototipo className="mb-6">
-          as chaves e modelos desta tela são demonstrativos — aceitam valores de
-          exemplo, não são validados no provedor e não executam chamadas. O
-          processamento real (assistente e demais recursos de IA) usa a chave de
-          Backoffice → Configuração de API
+          os modelos BeCulture do seletor do topo são exemplos. As respostas
+          reais — inclusive quando você escolhe um modelo BeCulture — usam as
+          chaves cadastradas aqui, na ordem de prioridade abaixo
           {resumo.execucao === "indisponivel" &&
-            ", que ainda não foi configurada"}
+            ". Cadastre uma chave e habilite um modelo de texto para o assistente responder"}
           .
         </NotaPrototipo>
       )}
@@ -517,165 +517,6 @@ export function BadgeOrigem({ origem }: { origem: OrigemCredencial }) {
       <Icon className="size-3.5" />
       {ROTULO_ORIGEM[origem]}
     </span>
-  );
-}
-
-/**
- * B2C com modelos BeCulture: MESMA anatomia da tela BYOK ("Chaves de API" +
- * "Modelos e Prioridades", mesmas listas e cabeçalhos de modalidade), só que
- * somente leitura. Sem chave própria, sem provedor externo, sem
- * desativar/excluir/reordenar o que é gerenciado pela plataforma. Os dados vêm
- * do catálogo publicado no Backoffice, sem depender de chave do usuário.
- */
-function ModelosGerenciadosBeCulture({ resumo }: { resumo: ResumoContaIa }) {
-  const modelos = resumo.modelosPlataforma;
-  // Mesmas chaves cadastradas em Backoffice → Modelos BeCulture (ativas e com
-  // modelo disponível). O valor da chave nunca é exibido.
-  const chaves = resumo.chavesPlataforma ?? [];
-
-  return (
-    <div>
-      {/* Mesma seção "Chaves de API" do BYOK, somente leitura. */}
-      <section>
-        <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
-          Chaves de API
-        </h4>
-        <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-          As chaves de API são fornecidas e administradas pela BeCulture. Não é
-          preciso — nem possível — cadastrar chaves próprias neste plano.
-        </p>
-
-        {chaves.length === 0 ? (
-          <div className="dark:border-dark-500 dark:bg-dark-600 mt-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p className="dark:text-dark-100 text-sm font-medium text-gray-700">
-              Nenhuma chave disponível ainda
-            </p>
-            <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-              As chaves aparecem aqui assim que a BeCulture disponibilizar
-              modelos para você.
-            </p>
-          </div>
-        ) : (
-          <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 mt-4 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
-            {chaves.map((c) => (
-              <li
-                key={c.id}
-                className="flex flex-wrap items-center gap-3 px-4 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
-                    {c.providerNome}
-                    {c.nome && (
-                      <span className="dark:text-dark-300 font-normal text-gray-500">
-                        {" "}
-                        · {c.nome}
-                      </span>
-                    )}
-                  </p>
-                  <p className="dark:text-dark-300 mt-0.5 text-xs text-gray-400">
-                    {c.modelos}{" "}
-                    {c.modelos === 1
-                      ? "modelo conectado"
-                      : "modelos conectados"}
-                    <span className="mx-1.5">·</span>
-                    {listar(
-                      MODALITIES.filter((m) => c.kinds.includes(m.id)).map(
-                        (m) => m.label,
-                      ),
-                    )}
-                  </p>
-                </div>
-                <BadgeOrigem origem="plataforma" />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      {/* Mesma seção "Modelos e Prioridades" do BYOK, somente leitura. */}
-      <div className="mt-12">
-        <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
-          Modelos e Prioridades
-        </h4>
-        <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-          Modelos que atendem cada modalidade e a ordem em que são usados,
-          definidos pela BeCulture.
-        </p>
-        <div className="dark:divide-dark-500 mt-4 divide-y divide-gray-200">
-          {MODALITIES.map((m) => {
-            const lista = modelos.filter((x) => x.kind === m.id);
-            return (
-              <section key={m.id} className="py-5 first:pt-0 last:pb-0">
-                <div className="flex items-center gap-2">
-                  <span className="bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400 grid size-7 shrink-0 place-items-center rounded-lg">
-                    <m.icon className="size-4.5" />
-                  </span>
-                  <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
-                    {m.label}
-                  </h4>
-                  {lista.length > 0 && (
-                    <span className="bg-success/10 text-success inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
-                      <CheckCircleIcon className="size-3.5" />
-                      Disponível
-                      {lista.length > 1 && ` · ${lista.length} modelos`}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-4">
-                  {lista.length > 0 ? (
-                    <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
-                      {lista.map((x, i) => (
-                        <li
-                          key={x.id}
-                          className="relative flex flex-wrap items-center gap-3 px-3 py-2.5"
-                        >
-                          <span
-                            className={clsx(
-                              "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                              i === 0
-                                ? "bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
-                                : "dark:bg-dark-500 dark:text-dark-200 bg-gray-200 text-gray-600",
-                            )}
-                          >
-                            {i === 0 ? "1 · Principal" : i + 1}
-                          </span>
-                          <div className="min-w-0 flex-1 text-sm">
-                            <span className="dark:text-dark-100 font-medium text-gray-700">
-                              {x.rotulo}
-                            </span>
-                            <span className="dark:text-dark-300 ml-2 text-gray-400">
-                              {x.providerNome}
-                              {x.limiteTokensCiclo !== null &&
-                                ` · limite ${formatarTokens(x.limiteTokensCiclo)} tokens/ciclo`}
-                            </span>
-                          </div>
-                          <BadgeOrigem origem="plataforma" />
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="dark:border-dark-500 dark:bg-dark-600 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
-                      <p className="dark:text-dark-100 text-sm font-medium text-gray-700">
-                        Nenhum modelo disponível
-                      </p>
-                      <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-                        Seu plano ainda não inclui modelos de{" "}
-                        {m.label.toLowerCase()}.
-                      </p>
-                    </div>
-                  )}
-                  {lista.length > 1 && (
-                    <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
-                      Se um modelo falhar, o próximo assume automaticamente.
-                    </p>
-                  )}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      </div>{" "}
-    </div>
   );
 }
 
@@ -1856,30 +1697,116 @@ function NotaPrototipo({
 }
 
 /**
- * Franquia do plano B2C BeCulture — container próprio, abaixo do "IA & API"
- * em Configurações. Só existe para contas com modelos BeCulture (BYOK e B2B
- * não têm franquia da BeCulture).
+ * Cota do plano B2C — container próprio, abaixo do "IA & API" em
+ * Configurações. Mostra o consumo dos modelos BeCulture no ciclo e a
+ * autorização EXPLÍCITA para usar as chaves próprias quando a cota esgotar
+ * (sem ela, a plataforma nunca usa as chaves próprias no lugar da cota).
  */
 export function FranquiaPlanoSection() {
-  const { resumo } = useResumoContaIa();
-  const consumo = resumo?.modalidade === "beculture" ? resumo.consumo : null;
-  if (!consumo) return null;
-  const plano = resumo?.planoIa ? ROTULO_PLANO[resumo.planoIa] : null;
+  const { resumo, setResumo, recarregar } = useResumoContaIa();
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    const ouvir = () => void recarregar();
+    window.addEventListener(EVENTO_CONTA_IA_ALTERADA, ouvir);
+    return () => window.removeEventListener(EVENTO_CONTA_IA_ALTERADA, ouvir);
+  }, [recarregar]);
+
+  const cota = resumo?.modalidade === "beculture" ? resumo.cota : null;
+  if (!resumo || !cota) return null;
+  const plano = resumo.planoIa ? ROTULO_PLANO[resumo.planoIa] : null;
+  const renova = new Date(cota.renovaEm).toLocaleDateString("pt-BR");
+  const autorizado = !!resumo.byokAposCota?.autorizado;
+  const pct =
+    cota.limite !== null && cota.limite > 0
+      ? Math.min(100, Math.round((cota.total / cota.limite) * 100))
+      : null;
+
+  const alternar = async (ligar: boolean) => {
+    setSalvando(true);
+    try {
+      setResumo(
+        ligar ? await autorizarByokAposCota() : await revogarByokAposCota(),
+      );
+      toast.success(
+        ligar
+          ? `Autorizado: quando a cota acabar, o uso passa para as suas chaves até ${renova}.`
+          : "Autorização revogada.",
+      );
+    } catch (err) {
+      toast.error(errMessage(err));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
   return (
     <SectionCard
-      titulo="Franquia do plano"
-      descricao={`Consumo de IA incluído no plano${plano ? ` ${plano}` : ""} neste ciclo.`}
+      titulo="Cota do plano"
+      descricao={`Uso dos modelos BeCulture incluído no plano${plano ? ` ${plano}` : ""} neste ciclo.`}
     >
-      <p className="dark:text-dark-200 text-sm text-gray-600">
-        {formatarTokens(consumo.total)} tokens usados neste ciclo
-        {consumo.franquiaGlobalTokens !== null
-          ? ` de ${formatarTokens(consumo.franquiaGlobalTokens)} da franquia.`
-          : " · sem franquia global definida (valem os limites por modelo)."}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
+          {formatarTokens(cota.total)} tokens usados
+          {cota.limite !== null && (
+            <span className="dark:text-dark-300 font-normal text-gray-500">
+              {" "}
+              de {formatarTokens(cota.limite)}
+            </span>
+          )}
+        </p>
+        {cota.esgotada ? (
+          <span className="bg-warning/10 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
+            Cota esgotada
+          </span>
+        ) : (
+          <span className="dark:text-dark-300 text-xs text-gray-400">
+            Renova em {renova}
+          </span>
+        )}
+      </div>
+      {pct !== null && (
+        <div className="dark:bg-dark-500 mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+          <div
+            className={clsx(
+              "h-full rounded-full",
+              cota.esgotada ? "bg-warning" : "bg-primary-500",
+            )}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
+        {cota.limite === null
+          ? "Este plano ainda não tem cota definida: o uso não é limitado. "
+          : ""}
+        Ciclo provisório (mês calendário). Uso nas suas próprias chaves não
+        conta na cota.
       </p>
-      <p className="dark:text-dark-300 mt-1 text-xs text-gray-400">
-        Ciclo provisório (mês calendário). A política definitiva de renovação e
-        excedentes ainda não foi definida.
-      </p>
+
+      <div className="dark:border-dark-500 mt-4 border-t border-gray-100">
+        <ToggleRow
+          nome="Usar minhas chaves quando a cota acabar"
+          descricao={
+            autorizado && resumo.byokAposCota?.ate
+              ? `Autorizado até ${new Date(resumo.byokAposCota.ate).toLocaleDateString("pt-BR")} (renovação da cota). O consumo passa a ser cobrado pelo provedor na sua chave.`
+              : resumo.temChavePropria
+                ? "Sem esta autorização, ao acabar a cota o assistente para e pede sua decisão. Vale até a cota renovar."
+                : "Cadastre uma chave em IA & API para poder usar esta opção. Vale até a cota renovar."
+          }
+          checked={autorizado}
+          onChange={(v) => {
+            if (salvando) return;
+            if (v && !resumo.temChavePropria) {
+              toast.error(
+                "Cadastre uma chave de API e habilite um modelo de texto em IA & API primeiro.",
+              );
+              return;
+            }
+            void alternar(v);
+          }}
+        />
+      </div>
     </SectionCard>
   );
 }

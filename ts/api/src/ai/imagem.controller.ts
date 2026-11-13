@@ -7,7 +7,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrototipoIaService } from './prototipo.service';
 import { AiMediaConnectionsService } from './media-connections.service';
 import { ehChaveRejeitada, ehFalhaDeProvedor } from './falha-provedor';
 import { gerarImagensOpenAI, type ModeloImagem } from './imagem/gerar';
@@ -56,7 +55,6 @@ export class ImagemController {
   constructor(
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
-    private readonly prototipo: PrototipoIaService,
     private readonly memorias: MemoriasService,
   ) {}
 
@@ -149,11 +147,11 @@ export class ImagemController {
       );
     }
 
-    // Sem fila própria: chave operacional do protótipo (Backoffice → .env).
-    const key = (await this.prototipo.chave('openai'))?.apiKey ?? '';
+    // Sem fila própria: chave do servidor (.env).
+    const key = this.config.get<string>('OPENAI_API_KEY') ?? '';
     if (!key) {
       throw new BadRequestException(
-        'Nenhuma IA de Imagem disponível. Cadastre a chave OpenAI em Backoffice → Configuração de API.',
+        'Nenhuma IA de Imagem disponível. Cadastre uma chave OpenAI em Configurações → IA & API.',
       );
     }
     return [{ apiKey: key }];

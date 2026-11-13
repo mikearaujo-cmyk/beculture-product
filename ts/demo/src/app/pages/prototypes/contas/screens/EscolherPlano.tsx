@@ -5,8 +5,9 @@
  * real: a escolha vai para o backend no `/registrar` e passa a determinar o
  * onboarding, a tela IA & API e de onde vêm os modelos.
  *
- * B2C (BeCulture / BYOK) e B2B são contextos comerciais distintos — os cards
- * mostram as regras de cada um lado a lado, e não variações de um mesmo plano.
+ * B2C (unificado: cota BeCulture + chaves próprias opcionais) e B2B são
+ * contextos comerciais distintos — os cards
+ * mostram as regras de cada um lado a lado.
  */
 
 import {
@@ -63,7 +64,7 @@ export default function EscolherPlano() {
       kicker="Seleção de plano"
       titulo="Como você vai contratar a beculture?"
       subtitulo="A modalidade define de onde vêm os modelos de IA e quem paga pelo uso"
-      largura="max-w-[68rem]"
+      largura="max-w-[52rem]"
       depoisDoCard={
         <p className="dark:text-dark-300 mt-4 text-center text-xs text-gray-400">
           Protótipo: nenhuma cobrança é realizada. A escolha só direciona o
@@ -74,7 +75,7 @@ export default function EscolherPlano() {
       <div
         role="radiogroup"
         aria-label="Modalidade de contratação"
-        className="grid gap-4 md:grid-cols-3"
+        className="grid gap-4 md:grid-cols-2"
       >
         {MODALIDADES.map((m) => {
           const selecionado = modalidade === m.id;

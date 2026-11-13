@@ -1,18 +1,18 @@
 /**
  * Backoffice → Modelos BeCulture.
  *
- * Catálogo ADMINISTRATIVO DEMONSTRATIVO: as chaves e os modelos que a BeCulture
- * disponibiliza aos usuários do B2C com modelos BeCulture. O que é cadastrado
- * aqui aparece para esses usuários em IA & API e no seletor de modelos.
+ * Catálogo ADMINISTRATIVO DEMONSTRATIVO: os modelos BeCulture que aparecem no
+ * seletor do Navbar das contas B2C (Automático + estes, sem prioridade entre
+ * eles), e a cota de tokens de cada plano.
  *
- * Visual: mesma anatomia da tela IA & API do BYOK — "Chaves de API" (lista
- * cinza, menu ⋮, modal de cadastro) e "Modelos e Prioridades" (uma seção por
- * modalidade, linhas "1 · Principal"). Especificações de plano ficam fora da
- * tela por ora: todo modelo ativo vale para todos os planos.
+ * Visual: mesma anatomia da tela IA & API — "Chaves de API" (lista cinza, menu
+ * ⋮, modal de cadastro) e "Modelos" (uma seção por modalidade). Todo modelo
+ * ativo vale para todos os planos; só a cota varia por plano.
  *
- * As chaves daqui NÃO executam chamadas no protótipo — quem executa é a chave
- * de Backoffice → Configuração de API. Não se misturam com as chaves de
- * usuários (BYOK) ou de organizações (B2B).
+ * As chaves daqui são EXEMPLOS: não são validadas no provedor e não executam
+ * chamadas no protótipo — quem responde é a chave que o usuário cadastra em
+ * Configurações → IA & API. Não se misturam com as chaves de usuários (BYOK)
+ * ou de organizações (B2B).
  */
 
 import {
@@ -52,9 +52,11 @@ import type { AiModality, CatalogProvider } from "@/services/api/aiCredential";
 import {
   backoffice,
   mensagemDeErro,
+  ROTULO_PLANO,
   type PlanoIa,
   type PlataformaCredencial,
   type PlataformaModelo,
+  type PlataformaPlano,
 } from "@/services/api/modalidade";
 
 import { SectionCard } from "../configuracoes-ui";
@@ -129,7 +131,7 @@ export function IaPlataformaSection() {
   return (
     <SectionCard
       titulo="Modelos BeCulture"
-      descricao="Chaves e modelos que a BeCulture disponibiliza aos usuários dos planos B2C com modelos BeCulture. O que estiver ativo aqui aparece para esses usuários em IA & API e no seletor de modelos."
+      descricao="Modelos que aparecem no seletor do topo para as contas B2C, e a cota de tokens de cada plano. As chaves daqui são exemplos e não executam chamadas: no protótipo, quem responde é a chave que o usuário cadastra em Configurações → IA & API."
     >
       {erro ? (
         <div className="bg-error/10 flex items-start gap-2 rounded-xl px-4 py-3">
@@ -162,6 +164,7 @@ export function IaPlataformaSection() {
             catalogo={catalogo}
             agir={agir}
           />
+          <CotaPorPlano />
         </>
       )}
     </SectionCard>
@@ -207,9 +210,9 @@ function ChavesDaPlataforma({
         Chaves de API
       </h4>
       <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-        Conecte os provedores de IA que a BeCulture oferece aos usuários. As
-        chaves são armazenadas de forma segura e nunca são exibidas por
-        completo.
+        Provedores que a BeCulture oferece aos usuários. No protótipo as chaves
+        são exemplos: são guardadas de forma segura, mas não são validadas no
+        provedor nem executam chamadas.
       </p>
 
       {aviso && (
@@ -270,14 +273,12 @@ function ChavesDaPlataforma({
                     chave recusada
                   </span>
                 ) : (
-                  !c.validatedAt && (
-                    <span
-                      title="A chave foi salva, mas o provedor não confirmou que ela funciona."
-                      className="dark:bg-dark-500 dark:text-dark-200 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500"
-                    >
-                      não verificada
-                    </span>
-                  )
+                  <span
+                    title="Chave de exemplo: não executa chamadas no protótipo."
+                    className="dark:bg-dark-500 dark:text-dark-200 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500"
+                  >
+                    exemplo
+                  </span>
                 )}
                 {!c.ativa && (
                   <span className="dark:bg-dark-500 dark:text-dark-200 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500">
@@ -292,16 +293,6 @@ function ChavesDaPlataforma({
                       label: "Editar",
                       icon: PencilSquareIcon,
                       onClick: () => setModal({ editar: c }),
-                    },
-                    {
-                      label: "Revalidar",
-                      icon: ArrowPathIcon,
-                      onClick: () =>
-                        void executar(
-                          c.id,
-                          () => backoffice.revalidarCredencial(c.id),
-                          "Chave confirmada pelo provedor.",
-                        ),
                     },
                     {
                       label: c.ativa ? "Desativar" : "Ativar",
@@ -573,7 +564,7 @@ function ModalChave({
 }
 
 // ---------------------------------------------------------------------------
-// Modelos e Prioridades
+// Modelos
 
 function ModelosEPrioridades({
   modelos,
@@ -589,11 +580,12 @@ function ModelosEPrioridades({
   return (
     <div className="mt-12">
       <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
-        Modelos e Prioridades
+        Modelos
       </h4>
       <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-        Escolha quais modelos os usuários terão em cada modalidade e em que
-        ordem devem ser usados.
+        Escolha quais modelos os usuários terão em cada modalidade. Eles
+        aparecem no seletor do topo junto do Automático, sem ordem de
+        prioridade: o usuário escolhe qual usar.
         {creds.length === 0 &&
           " Adicione uma chave de API para começar a configurar os modelos."}
       </p>
@@ -668,7 +660,7 @@ function PainelModalidade({
         <div className="mt-4">
           {modelos.length > 0 ? (
             <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
-              {modelos.map((x, i) => (
+              {modelos.map((x) => (
                 <li
                   key={x.id}
                   className={clsx(
@@ -676,16 +668,6 @@ function PainelModalidade({
                     !x.ativo && "opacity-60",
                   )}
                 >
-                  <span
-                    className={clsx(
-                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                      i === 0
-                        ? "bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
-                        : "dark:bg-dark-500 dark:text-dark-200 bg-gray-200 text-gray-600",
-                    )}
-                  >
-                    {i === 0 ? "1 · Principal" : i + 1}
-                  </span>
                   <div className="min-w-0 flex-1 text-sm">
                     <span className="dark:text-dark-100 font-medium text-gray-700">
                       {x.rotulo}
@@ -1011,5 +993,110 @@ function MenuAcoes({
         ))}
       </Transition>
     </Menu>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cota por plano
+
+/**
+ * Cota de tokens por ciclo de cada plano B2C (consumo dos modelos BeCulture).
+ * Vazio = sem limite: nenhum valor é assumido. O backend aplica a cota em
+ * toda chamada e, ao esgotar, só usa as chaves do usuário com autorização.
+ */
+function CotaPorPlano() {
+  const [planos, setPlanos] = useState<PlataformaPlano[] | null>(null);
+  const [rascunho, setRascunho] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState<PlanoIa | null>(null);
+
+  useEffect(() => {
+    backoffice
+      .planos()
+      .then(setPlanos)
+      .catch((e) => toast.error(mensagemDeErro(e)));
+  }, []);
+
+  const valor = (p: PlataformaPlano) =>
+    rascunho[p.plano] ??
+    (p.franquiaGlobalTokens === null ? "" : String(p.franquiaGlobalTokens));
+
+  const salvar = async (p: PlataformaPlano) => {
+    const bruto = valor(p).replace(/\D/g, "");
+    const n = bruto === "" ? null : Number(bruto);
+    if (n !== null && n < 1) {
+      toast.error("Informe um número de tokens maior que zero, ou deixe vazio.");
+      return;
+    }
+    setSalvando(p.plano);
+    try {
+      await backoffice.definirFranquia(p.plano, n);
+      setPlanos(await backoffice.planos());
+      setRascunho((r) => {
+        const { [p.plano]: _, ...resto } = r;
+        void _;
+        return resto;
+      });
+      toast.success(
+        n === null
+          ? `Plano ${ROTULO_PLANO[p.plano]} sem limite de cota.`
+          : `Cota do plano ${ROTULO_PLANO[p.plano]} atualizada.`,
+      );
+    } catch (e) {
+      toast.error(mensagemDeErro(e));
+    } finally {
+      setSalvando(null);
+    }
+  };
+
+  return (
+    <div className="mt-12">
+      <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
+        Cota por plano
+      </h4>
+      <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
+        Tokens de modelos BeCulture por ciclo (mês calendário, provisório).
+        Deixe vazio para não limitar. Ao esgotar, o usuário vê as opções de
+        upgrade ou de usar a própria chave — esta, só com autorização dele.
+      </p>
+      {!planos ? (
+        <p className="dark:text-dark-300 mt-4 text-sm text-gray-400">
+          Carregando…
+        </p>
+      ) : (
+        <ul className="dark:divide-dark-500 dark:border-dark-500 dark:bg-dark-600 mt-4 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-gray-50">
+          {planos.map((p) => (
+            <li
+              key={p.plano}
+              className="flex flex-wrap items-center gap-3 px-4 py-3"
+            >
+              <span className="dark:text-dark-100 w-24 text-sm font-medium text-gray-800">
+                {ROTULO_PLANO[p.plano]}
+              </span>
+              <input
+                inputMode="numeric"
+                aria-label={`Cota do plano ${ROTULO_PLANO[p.plano]} em tokens`}
+                placeholder="Sem limite"
+                className={clsx(fieldCls, "max-w-48 flex-1")}
+                value={valor(p)}
+                onChange={(e) =>
+                  setRascunho((r) => ({ ...r, [p.plano]: e.target.value }))
+                }
+              />
+              <span className="dark:text-dark-300 text-xs text-gray-400">
+                tokens/ciclo
+              </span>
+              <Button
+                className="ms-auto h-8 text-xs"
+                variant="outlined"
+                disabled={salvando === p.plano || rascunho[p.plano] === undefined}
+                onClick={() => void salvar(p)}
+              >
+                {salvando === p.plano ? "Salvando…" : "Salvar"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

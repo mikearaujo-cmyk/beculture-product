@@ -34,6 +34,14 @@ export interface ModeloPlataformaVisivel {
   limiteTokensCiclo: number | null;
 }
 
+export interface CotaB2c {
+  total: number;
+  /** Tokens por ciclo. Null = sem limite definido. */
+  limite: number | null;
+  esgotada: boolean;
+  renovaEm: string;
+}
+
 export interface ResumoContaIa {
   modalidade: ModalidadeEfetiva;
   modalidadeComercial: "b2c" | "b2b" | null;
@@ -41,26 +49,23 @@ export interface ResumoContaIa {
   origemCredenciais: OrigemCredencial;
   prontidao: ProntidaoIa;
   /**
-   * Quem executa as chamadas de texto agora: chave própria da conta, chave
-   * operacional do protótipo (Backoffice → Configuração de API) ou ninguém.
+   * Quem executa as chamadas de texto agora. No protótipo, até os modelos
+   * BeCulture respondem pelas chaves próprias de IA & API.
    */
-  execucao: "propria" | "prototipo" | "indisponivel";
+  execucao: "propria" | "indisponivel";
   onboarding: { etapas: Record<string, string>; concluidoEm: string | null };
   podeGerenciarChaves: boolean;
   podeAdministrarIa: boolean;
   chavesProprias: { total: number; utilizaveis: number; congeladas: boolean };
-  /** Chaves de Backoffice → Modelos BeCulture disponíveis (só B2C BeCulture). */
-  chavesPlataforma?: {
-    id: string;
-    provider: string;
-    providerNome: string;
-    nome: string | null;
-    modelos: number;
-    kinds: AiModality[];
-  }[];
+  /** Há ao menos uma chave própria utilizável com modelo de texto na fila. */
+  temChavePropria: boolean;
+  /** B2C: cota BeCulture do plano no ciclo (tokens). */
+  cota: CotaB2c | null;
+  /** B2C: autorização para usar as chaves próprias quando a cota esgotar. */
+  byokAposCota: { autorizado: boolean; ate: string | null } | null;
   modelosPlataforma: ModeloPlataformaVisivel[];
   consumo: {
-    ciclo: { inicio: string; regra: string };
+    ciclo: { inicio: string; renovaEm: string; regra: string };
     total: number;
     franquiaGlobalTokens: number | null;
     porModelo: { model: string; total: number }[];
@@ -98,6 +103,17 @@ export async function concluirOnboardingIa(): Promise<ResumoContaIa> {
   const { data } = await axios.post<ResumoContaIa>(
     "/conta/onboarding/concluir",
   );
+  return data;
+}
+
+/** Autoriza usar as chaves próprias quando a cota esgotar (até renovar). */
+export async function autorizarByokAposCota(): Promise<ResumoContaIa> {
+  const { data } = await axios.post<ResumoContaIa>("/conta/byok-apos-cota");
+  return data;
+}
+
+export async function revogarByokAposCota(): Promise<ResumoContaIa> {
+  const { data } = await axios.delete<ResumoContaIa>("/conta/byok-apos-cota");
   return data;
 }
 
@@ -242,45 +258,6 @@ export interface StatusPlataforma {
   };
 }
 
-/** Chave operacional do protótipo (Backoffice → Configuração de API). */
-export type ProvedorOperacional = "anthropic" | "openai" | "heygen";
-
-export interface ChaveOperacional {
-  provider: ProvedorOperacional;
-  providerNome: string;
-  usos: string[];
-  /** De onde vem a chave em uso: Backoffice, .env do servidor ou nenhuma. */
-  fonte: "backoffice" | "ambiente" | "nenhuma";
-  keyLast4: string | null;
-  status: "ativa" | "invalida" | null;
-  validatedAt: string | null;
-  modeloPadrao: string | null;
-  atualizadoEm: string | null;
-  aviso?: string;
-}
-
-export const apiOperacional = {
-  listar: () =>
-    axios
-      .get<ChaveOperacional[]>("/backoffice/api-operacional")
-      .then((r) => r.data),
-  salvar: (
-    provider: ProvedorOperacional,
-    input: { apiKey?: string; modeloPadrao?: string | null },
-  ) =>
-    axios
-      .put<ChaveOperacional>(`/backoffice/api-operacional/${provider}`, input)
-      .then((r) => r.data),
-  testar: (provider: ProvedorOperacional) =>
-    axios
-      .post<ChaveOperacional>(`/backoffice/api-operacional/${provider}/testar`)
-      .then((r) => r.data),
-  remover: (provider: ProvedorOperacional) =>
-    axios
-      .delete<ChaveOperacional>(`/backoffice/api-operacional/${provider}`)
-      .then((r) => r.data),
-};
-
 export const backoffice = {
   status: () =>
     axios.get<StatusPlataforma>("/backoffice/status").then((r) => r.data),
@@ -364,7 +341,7 @@ export const backoffice = {
   contaDemo: () =>
     axios.get<ResumoContaIa>("/backoffice/conta-demo").then((r) => r.data),
   migrar: (input: {
-    modalidadeIa: ModalidadeIa;
+    modalidadeIa: "beculture" | "organizacao";
     planoIa?: PlanoIa;
     reiniciarOnboarding?: boolean;
   }) =>
@@ -376,8 +353,8 @@ export const backoffice = {
 // ---------- Rótulos compartilhados ----------
 
 export const ROTULO_MODALIDADE: Record<ModalidadeEfetiva, string> = {
-  beculture: "B2C · Modelos BeCulture",
-  byok: "B2C · BYOK (chaves próprias)",
+  beculture: "B2C",
+  byok: "B2C",
   organizacao: "B2B · Licenciamento SaaS",
   legado: "Conta legada (anterior aos planos)",
 };

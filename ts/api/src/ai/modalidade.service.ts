@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   ModalidadeComercial,
   OrigemCredencial,
@@ -8,11 +8,13 @@ import { PrismaService } from '@/prisma/prisma.service';
 
 /**
  * Modalidade de IA efetiva da conta.
- *   beculture   = B2C com modelos BeCulture (credenciais da plataforma)
- *   byok        = B2C com chaves do próprio usuário
+ *   beculture   = B2C (unificado): cota de modelos BeCulture conforme o plano
+ *                 + chaves próprias (BYOK) opcionais em IA & API. Contas
+ *                 gravadas como `byok` (o antigo "B2C BYOK") também caem aqui.
  *   organizacao = B2B, chaves da organização
  *   legado      = conta criada antes da seleção de planos: mantém o
  *                 comportamento anterior (fila BYOK + IA gerenciada no trial)
+ * `byok` continua no tipo só por compatibilidade com dados antigos.
  */
 export type ModalidadeEfetiva = 'beculture' | 'byok' | 'organizacao' | 'legado';
 
@@ -46,11 +48,13 @@ export class ModalidadeService {
       },
     });
     if (!e) throw new NotFoundException('Conta não encontrada.');
+    // B2C unificado: o antigo "B2C BYOK" vira B2C (sem migrar dados).
+    const b2c = e.modalidadeIa === 'beculture' || e.modalidadeIa === 'byok';
     return {
       empresaId,
-      modalidade: e.modalidadeIa ?? 'legado',
+      modalidade: b2c ? 'beculture' : (e.modalidadeIa ?? 'legado'),
       modalidadeComercial: e.modalidadeComercial,
-      planoIa: e.modalidadeIa === 'beculture' ? (e.planoIa ?? 'essencial') : null,
+      planoIa: b2c ? (e.planoIa ?? 'essencial') : null,
       onboardingEtapas: (e.onboardingEtapas ?? {}) as Record<string, string>,
       onboardingConcluidoEm: e.onboardingConcluidoEm,
     };
@@ -58,21 +62,18 @@ export class ModalidadeService {
 
   /** Dono das credenciais próprias da conta (para rótulo e registro de uso). */
   origemPropria(modalidade: ModalidadeEfetiva): OrigemCredencial {
-    return modalidade === 'byok' ? 'usuario' : 'organizacao';
+    return modalidade === 'beculture' || modalidade === 'byok'
+      ? 'usuario'
+      : 'organizacao';
   }
 
   /**
-   * Bloqueia a gestão de chaves/filas próprias quando a conta usa modelos
-   * BeCulture. As credenciais já cadastradas continuam guardadas (migração
-   * BYOK → BeCulture preserva), só não podem ser alteradas nem usadas.
+   * Ponto único para regras de quem pode gerenciar chaves próprias por
+   * modalidade. Hoje todas as modalidades podem (o B2C usa BYOK como
+   * complemento da cota BeCulture); a permissão de role continua no guard.
    */
   async assertPodeGerenciarChaves(empresaId: string): Promise<void> {
-    const { modalidade } = await this.contexto(empresaId);
-    if (modalidade === 'beculture') {
-      throw new ForbiddenException(
-        'Seu plano usa modelos gerenciados pela BeCulture: não é possível cadastrar ou alterar chaves próprias. Para usar suas chaves, migre para um plano BYOK.',
-      );
-    }
+    await this.contexto(empresaId);
   }
 
   async marcarEtapa(empresaId: string, etapa: string): Promise<ContextoIa> {

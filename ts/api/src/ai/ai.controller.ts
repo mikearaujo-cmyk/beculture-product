@@ -103,11 +103,29 @@ export class AiController {
       // Só mensagens de HttpException (intencionais) chegam ao cliente; erros
       // de SDK/provedor podem conter detalhes internos e são apenas logados.
       this.logger.error(err);
-      const message =
+      const corpo =
         err instanceof HttpException
-          ? String((err.getResponse() as { message?: string }).message ?? err.message)
-          : 'Erro ao gerar resposta. Tente novamente.';
-      send({ type: 'error', message });
+          ? (err.getResponse() as {
+              message?: string;
+              codigo?: string;
+              temChavePropria?: boolean;
+              renovaEm?: string;
+            })
+          : null;
+      const message = corpo
+        ? String(corpo.message ?? (err as Error).message)
+        : 'Erro ao gerar resposta. Tente novamente.';
+      send({
+        type: 'error',
+        message,
+        ...(corpo?.codigo
+          ? {
+              codigo: corpo.codigo,
+              temChavePropria: corpo.temChavePropria,
+              renovaEm: corpo.renovaEm,
+            }
+          : {}),
+      });
     } finally {
       res.end();
     }

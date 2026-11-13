@@ -65,7 +65,7 @@ function conteudoDoEstado(
           : "Conecte seu primeiro provedor de IA",
         acontecendo: org
           ? "No licenciamento B2B a IA usa exclusivamente as chaves da organização. Nenhuma chave foi cadastrada ainda."
-          : "No plano BYOK a IA usa as suas próprias chaves. Nenhuma chave foi cadastrada ainda.",
+          : "A IA usa as suas próprias chaves. Nenhuma chave foi cadastrada ainda.",
         configurar:
           "Uma chave de API de um provedor compatível (ex.: Anthropic ou OpenAI) e ao menos um modelo habilitado.",
         depois: `Com a chave validada e um modelo habilitado, os recursos de IA ficam disponíveis${org ? " para os membros" : ""}. O uso é cobrado pelo provedor diretamente ${org ? "à organização" : "a você"}.`,

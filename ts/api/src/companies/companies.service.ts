@@ -172,11 +172,9 @@ export class CompaniesService {
         where: { id: result.empresa.id },
         data: {
           modalidadeComercial: b2b ? 'b2b' : 'b2c',
-          modalidadeIa: dto.modalidadeIa,
-          planoIa:
-            dto.modalidadeIa === 'beculture'
-              ? (dto.planoIa ?? 'essencial')
-              : null,
+          // B2C unificado: "byok" (contas antigas da tela) também vira B2C.
+          modalidadeIa: b2b ? 'organizacao' : 'beculture',
+          planoIa: b2b ? null : (dto.planoIa ?? 'essencial'),
           onboardingEtapas: { conta: agora, plano: agora },
         },
       });

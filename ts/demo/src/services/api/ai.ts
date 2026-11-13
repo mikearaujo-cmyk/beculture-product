@@ -1,4 +1,5 @@
 import { JWT_HOST_API } from "@/configs/auth";
+import { avisarCotaEsgotada, ehCotaEsgotada } from "@/utils/cotaEsgotada";
 import { modeloAtual } from "@/utils/modeloAtual";
 
 export interface AiChatTurn {
@@ -66,6 +67,9 @@ export async function streamSquadChat(
         text?: string;
         message?: string;
         conversaId?: string;
+        codigo?: string;
+        temChavePropria?: boolean;
+        renovaEm?: string;
       };
       try {
         evt = JSON.parse(json);
@@ -80,6 +84,7 @@ export async function streamSquadChat(
       } else if (evt.type === "done") {
         if (evt.conversaId) conversaId = evt.conversaId;
       } else if (evt.type === "error") {
+        if (ehCotaEsgotada(evt)) avisarCotaEsgotada(evt);
         throw new Error(evt.message ?? "Erro ao gerar resposta.");
       }
     }

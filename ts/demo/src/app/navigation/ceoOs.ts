@@ -514,6 +514,9 @@ export const systemAreas: SystemArea[] = [
   // BeCulture, conta em demonstração, repositórios). Acesso pelo rodapé da
   // sidebar, para qualquer conta — não é funcionalidade comercial.
   { slug: "backoffice", title: "Backoffice", transKey: k("backoffice"), icon: "ceo.config" },
+  // Planos B2C (apresentação neutra): destino do "Fazer upgrade" do aviso de
+  // cota esgotada. Só gera a rota.
+  { slug: "planos", title: "Planos", transKey: k("plans"), icon: "ceo.config" },
 ];
 
 /** Seções de Configurações de usuário (`?secao=`). */

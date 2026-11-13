@@ -17,7 +17,6 @@ import { ModalidadeService } from './modalidade.service';
 import { PlataformaIaService } from './plataforma.service';
 import { FranquiaService } from './franquia.service';
 import { ORQUESTRADOR_ID, rotearAutomatico } from './orquestrador';
-import { PrototipoIaService } from './prototipo.service';
 import { isKnownModelFor } from './catalogo';
 import { getProvider, type LlmWebResult } from './providers';
 import { AiConnectionsService } from './connections.service';
@@ -58,10 +57,8 @@ interface CandidatoIa {
   managed: boolean;
   /** Dono da credencial (plataforma, usuário ou organização). */
   origem?: OrigemCredencial;
-  /** Provedor da chave operacional do protótipo, quando ela executou. */
-  prototipoProvider?: string;
   planoIa?: PlanoIaB2c;
-  /** Infraestrutura que executa: chave própria, operacional ou .env. */
+  /** Quem executa: chave própria, chave própria simulando BeCulture (protótipo) ou .env. */
   execucao?: 'propria' | 'prototipo' | 'ambiente';
   /** "auto" (orquestrador) ou o id do modelo pedido no seletor. */
   solicitadoComo?: string;
@@ -87,7 +84,6 @@ export class AiService {
     private readonly modalidade: ModalidadeService,
     private readonly plataforma: PlataformaIaService,
     private readonly franquia: FranquiaService,
-    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -259,16 +255,20 @@ ${PLATFORM_FRAMING}${conexoes}`;
   /**
    * Resolve os candidatos de TEXTO de uma chamada, em ordem de prioridade.
    *
-   * O PEDIDO vem do que a conta pode usar — B2C BeCulture: catálogo publicado
-   * no plano; BYOK/B2B/legado: fila (demonstrativa) da conta — e do `modelo`
-   * escolhido no seletor da ação:
-   *   - `'auto'`         → Automático (orquestrador) escolhe entre os pedidos
-   *   - id de um modelo  → esse modelo vai à frente (precisa estar disponível)
-   *   - ausente          → ordem da fila (chamadas internas)
-   *
-   * A EXECUÇÃO é sempre da chave operacional do Backoffice: o modelo pedido
-   * roda ele mesmo se a chave o executa; senão, roda o modelo padrão
-   * operacional. Pedido × efetivo ficam registrados no consumo.
+   * B2C (unificado):
+   *   - PEDIDO: `modelo` do seletor do Navbar — `'auto'` (orquestrador) ou um
+   *     modelo do catálogo BeCulture (Backoffice → Modelos BeCulture).
+   *   - EXECUÇÃO NO PROTÓTIPO: os modelos BeCulture são demonstrativos; quem
+   *     responde é a fila de chaves que a conta cadastrou em IA & API. O modelo
+   *     pedido roda ele mesmo quando há chave própria do mesmo provedor;
+   *     senão, roda a fila própria na ordem de prioridade. O consumo é
+   *     registrado como `origem = plataforma` (conta na cota) com o pedido em
+   *     `solicitadoComo` e `execucao = prototipo`.
+   *   - COTA ESGOTADA: só usa as chaves próprias (`origem = usuario`, fora da
+   *     cota) se o usuário AUTORIZOU explicitamente neste ciclo. Sem isso, 429
+   *     `franquia_esgotada` — nunca há uso automático de BYOK.
+   * B2B / legado: fila própria da conta, como sempre (legado/trial ainda cai
+   * na chave do servidor). `modelo` é ignorado.
    */
   private async resolveCandidatos(
     empresaId: string,
@@ -277,118 +277,107 @@ ${PLATFORM_FRAMING}${conexoes}`;
     modelo?: string,
   ): Promise<CandidatoIa[]> {
     const ctx = await this.modalidade.contexto(empresaId);
-    // O seletor de modelos só existe no B2C BeCulture: nas demais
-    // modalidades a fila da conta define a ordem e `modelo` é ignorado.
-    if (ctx.modalidade !== 'beculture') modelo = undefined;
-    const operacionais = await this.prototipo.chavesTexto();
-    const semChaveOperacional = () =>
-      new ServiceUnavailableException({
+    const proprias = await this.connections.listDecrypted(empresaId);
+
+    if (ctx.modalidade !== 'beculture') {
+      const origem =
+        ctx.modalidade === 'legado'
+          ? undefined
+          : this.modalidade.origemPropria(ctx.modalidade);
+      if (proprias.length > 0) {
+        return proprias.map((c) => ({
+          ...c,
+          managed: false,
+          origem,
+          execucao: 'propria' as const,
+        }));
+      }
+      const trial = await this.candidatoDeTrial(empresaId);
+      if (trial) return [trial];
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        codigo: 'sem_chave',
+        message: 'Nenhuma IA conectada. Conecte um provedor em Configurações → IA & API.',
+      });
+    }
+
+    const plano = ctx.planoIa ?? 'essencial';
+    const catalogo = await this.plataforma.disponiveisNoPlano(plano, 'text');
+    this.exigirModeloDisponivel(modelo, catalogo);
+    const automatico = !modelo || modelo === ORQUESTRADOR_ID;
+    const solicitado = automatico ? ORQUESTRADOR_ID : modelo;
+
+    // Cota BeCulture do plano (só com usuário identificado).
+    if (usuarioId) {
+      const cota = await this.franquia.estado(usuarioId, plano);
+      if (cota.esgotada) {
+        const { autorizado } = await this.franquia.byokAutorizado(usuarioId);
+        if (!autorizado || proprias.length === 0) {
+          throw this.franquia.erroEsgotada(cota, proprias.length > 0);
+        }
+        // Autorizado: chaves próprias na prioridade da fila BYOK, fora da cota.
+        return proprias.map((c) => ({
+          ...c,
+          managed: false,
+          origem: 'usuario' as const,
+          solicitadoComo: solicitado,
+          execucao: 'propria' as const,
+        }));
+      }
+    }
+
+    if (proprias.length === 0) {
+      throw new ServiceUnavailableException({
         statusCode: 503,
         codigo: 'sem_chave_prototipo',
         message:
-          'O protótipo está sem chave de API operacional. Cadastre uma em Backoffice → Configuração de API.',
+          'No protótipo, as respostas dos modelos BeCulture usam a sua chave de API. Cadastre uma em Configurações → IA & API.',
       });
-
-    // Pedidos possíveis da conta + metadados comerciais de cada contexto.
-    let pedidos: {
-      provider: string;
-      model: string;
-      limiteTokensCiclo: number | null;
-    }[];
-    let base: Pick<CandidatoIa, 'managed' | 'origem' | 'planoIa'>;
-
-    if (ctx.modalidade === 'beculture') {
-      // Catálogo publicado; a fila própria (de um BYOK anterior) nunca entra.
-      const plano = ctx.planoIa ?? 'essencial';
-      pedidos = (await this.plataforma.disponiveisNoPlano(plano, 'text')).map(
-        (m) => ({
-          provider: m.provider,
-          model: m.model,
-          limiteTokensCiclo:
-            m.planos.find((p) => p.plano === plano)?.limiteTokensCiclo ?? null,
-        }),
-      );
-      if (pedidos.length === 0) {
-        throw new ServiceUnavailableException({
-          statusCode: 503,
-          codigo: 'sem_modelos_plataforma',
-          message:
-            'Nenhum modelo BeCulture está disponível no seu plano no momento. A disponibilização é feita pela administração da plataforma.',
-        });
-      }
-      this.exigirModeloDisponivel(modelo, pedidos);
-      if (usuarioId) {
-        pedidos = await this.franquia.filtrarComSaldo(usuarioId, plano, pedidos);
-      }
-      base = { managed: true, origem: 'plataforma', planoIa: plano };
-    } else {
-      // BYOK, B2B e legadas: fila demonstrativa da conta (ver
-      // PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS).
-      pedidos = (await this.connections.listPublic(empresaId))
-        .filter((c) => c.ativa && c.status !== 'invalida')
-        .map((c) => ({
-          provider: c.provider,
-          model: c.model,
-          limiteTokensCiclo: null,
-        }));
-      this.exigirModeloDisponivel(modelo, pedidos);
-      base = {
-        managed: true,
-        origem:
-          ctx.modalidade === 'legado'
-            ? undefined
-            : this.modalidade.origemPropria(ctx.modalidade),
-      };
     }
-    if (operacionais.length === 0) throw semChaveOperacional();
 
-    const automatico = modelo === ORQUESTRADOR_ID;
-    const especifico = modelo && !automatico ? modelo : undefined;
-    if (especifico) {
-      // O escolhido vai à frente; os demais seguem como reserva do failover.
-      pedidos = [
-        ...pedidos.filter((p) => p.model === especifico),
-        ...pedidos.filter((p) => p.model !== especifico),
-      ];
-    }
-    const solicitado = automatico ? ORQUESTRADOR_ID : especifico;
-    const execucao = (o: { fonte: string }) =>
-      o.fonte === 'backoffice' ? ('prototipo' as const) : ('ambiente' as const);
-
-    const executaveis: CandidatoIa[] = [];
-    for (const p of pedidos) {
-      const op = operacionais.find((o) => o.provider === p.provider);
-      if (op && isKnownModelFor(op.provider, 'text', p.model)) {
-        executaveis.push({
-          ...base,
-          provider: op.provider as AiProvider,
-          model: p.model,
-          apiKey: op.apiKey,
-          prototipoProvider: op.provider,
-          solicitadoComo: solicitado ?? p.model,
-          execucao: execucao(op),
-        });
+    const base = {
+      managed: true,
+      origem: 'plataforma' as const,
+      planoIa: plano,
+      solicitadoComo: solicitado,
+      execucao: 'prototipo' as const,
+    };
+    const fila: CandidatoIa[] = proprias.map((c) => ({ ...c, ...base }));
+    if (!automatico) {
+      // O modelo pedido roda ele mesmo se alguma chave própria do provedor o
+      // executa; a fila própria segue como reserva do failover.
+      const pedido = catalogo.find((m) => m.model === modelo);
+      const chave = pedido && proprias.find((c) => c.provider === pedido.provider);
+      if (pedido && chave && isKnownModelFor(chave.provider, 'text', pedido.model)) {
+        return [
+          { ...chave, ...base, model: pedido.model },
+          ...fila,
+        ];
       }
+      return fila;
     }
-    // Pedido que a chave operacional não executa (ex.: modelo demonstrativo)
-    // cai no modelo padrão operacional, mantendo o pedido registrado.
-    const pedidoPrincipal = solicitado ?? pedidos[0]?.model;
-    const usaPadrao =
-      executaveis.length === 0 ||
-      (!!especifico && executaveis[0].model !== especifico);
-    const padrao: CandidatoIa[] = operacionais
-      .filter((o) => o.model)
-      .map((o) => ({
-        ...base,
-        provider: o.provider as AiProvider,
-        model: o.model,
-        apiKey: o.apiKey,
-        prototipoProvider: o.provider,
-        solicitadoComo: pedidoPrincipal,
-        execucao: execucao(o),
-      }));
-    const lista = usaPadrao ? [...padrao, ...executaveis] : executaveis;
-    return automatico ? rotearAutomatico(lista, tamanhoEntrada) : lista;
+    return rotearAutomatico(fila, tamanhoEntrada);
+  }
+
+  /** Conta em trial (legado/B2B sem chave própria): chave do servidor. */
+  private async candidatoDeTrial(empresaId: string): Promise<CandidatoIa | null> {
+    const managedKey = this.config.get<string>('ANTHROPIC_API_KEY');
+    if (!managedKey) return null;
+    const assinatura = await this.prisma.assinatura.findUnique({
+      where: { empresaId },
+    });
+    const trialAtivo =
+      !!assinatura &&
+      assinatura.status === 'trial' &&
+      assinatura.trialEndsAt.getTime() > Date.now();
+    if (!trialAtivo) return null;
+    return {
+      provider: 'anthropic',
+      model: this.config.get<string>('AI_MODEL', 'claude-opus-4-8'),
+      apiKey: managedKey,
+      managed: true,
+      execucao: 'ambiente',
+    };
   }
 
   /** Um modelo específico só vale se estiver entre os disponíveis da conta. */
@@ -458,9 +447,6 @@ ${PLATFORM_FRAMING}${conexoes}`;
     );
     if (candidato.id && ehChaveRejeitada(err)) {
       void this.connections.marcarInvalida(candidato.id);
-    }
-    if (candidato.prototipoProvider && ehChaveRejeitada(err)) {
-      void this.prototipo.marcarInvalida(candidato.prototipoProvider);
     }
   }
 
@@ -560,7 +546,7 @@ ${PLATFORM_FRAMING}${conexoes}`;
     const status = statusDoErro(err);
     if (status === 401 || status === 403) {
       throw new ServiceUnavailableException(
-        'A chave de IA conectada é inválida ou sem permissão. Reconecte o provedor em Conexões.',
+        'A chave de IA conectada é inválida ou sem permissão. Reconecte o provedor em Configurações → IA & API.',
       );
     }
     if (status === 429) {
@@ -570,7 +556,7 @@ ${PLATFORM_FRAMING}${conexoes}`;
     }
     if (status === 404) {
       throw new ServiceUnavailableException(
-        'O modelo de IA configurado não está disponível. Verifique o modelo em Conexões.',
+        'O modelo de IA configurado não está disponível. Verifique o modelo em Configurações → IA & API.',
       );
     }
     const msg = err instanceof Error ? err.message : 'erro desconhecido';

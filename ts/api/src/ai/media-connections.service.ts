@@ -161,13 +161,6 @@ export class AiMediaConnectionsService {
   ): Promise<DecryptedMediaConnection[]> {
     // PROTÓTIPO: chaves da conta são demonstrativas (ver connections.service).
     if (PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS) return [];
-    // B2C BeCulture: a fila própria (se houver, de um BYOK anterior) fica
-    // guardada e sem uso. Os controllers de mídia executam então pela chave
-    // operacional do protótipo — as credenciais de "Modelos BeCulture" são
-    // demonstrativas e não executam chamadas.
-    const ctx = await this.modalidade.contexto(empresaId);
-    if (ctx.modalidade === 'beculture') return [];
-
     const rows = await this.prisma.aiMediaConnection.findMany({
       where: { empresaId, kind, credential: { ativa: true } },
       orderBy: [{ priority: 'asc' }, { criadoEm: 'asc' }],

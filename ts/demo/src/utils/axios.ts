@@ -4,6 +4,7 @@ import { repositorioPastaAtivo } from "@/app/pages/ceo/memoria-inventario";
 import { organizacaoAtivaId } from "@/app/pages/ceo/repositorio-org/escopo";
 import { sessaoLocalAtiva, tokenArmazenado } from "@/utils/sessaoLocal";
 import { kindDaRotaDeIa, modeloAtual } from "@/utils/modeloAtual";
+import { avisarCotaEsgotada, ehCotaEsgotada } from "@/utils/cotaEsgotada";
 
 const axiosInstance = axios.create({
   baseURL: JWT_HOST_API,
@@ -122,6 +123,12 @@ axiosInstance.interceptors.response.use(
         message: ERRO_SESSAO_LOCAL,
         statusCode: 401,
       });
+    }
+
+    // Cota BeCulture esgotada (B2C): abre o aviso global com as alternativas.
+    // O erro segue para quem chamou, que mantém o próprio tratamento.
+    if (ehCotaEsgotada(error.response.data)) {
+      avisarCotaEsgotada(error.response.data);
     }
 
     return Promise.reject(error.response.data || ERRO_SEM_RESPOSTA);

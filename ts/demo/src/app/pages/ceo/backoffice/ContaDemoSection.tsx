@@ -1,12 +1,12 @@
 /**
  * Backoffice → Conta em demonstração.
  *
- * Migra a conta logada entre modalidades para demonstrar o comportamento de
- * cada uma. As regras são do backend:
- *   - B2C BeCulture ↔ BYOK: permitido. Chaves próprias são preservadas; em
- *     BeCulture ficam guardadas e sem uso; ao voltar para BYOK voltam a valer.
- *     Não há fallback silencioso entre chaves próprias e da BeCulture.
+ * Troca o plano da conta logada para demonstrar o comportamento de cada um.
+ * As regras são do backend:
+ *   - B2C (unificado): Essencial ↔ Pro (simula o upgrade). Chaves próprias e a
+ *     autorização de uso após a cota são preservadas.
  *   - B2C ↔ B2B: não permitido (contextos comerciais distintos).
+ *   - Conta legada: pode virar B2C ou B2B.
  */
 
 import { useEffect, useState } from "react";
@@ -19,7 +19,6 @@ import {
   mensagemDeErro,
   ROTULO_MODALIDADE,
   ROTULO_PLANO,
-  type ModalidadeIa,
   type PlanoIa,
   type ResumoContaIa,
 } from "@/services/api/modalidade";
@@ -40,8 +39,8 @@ const ROTULO_PRONTIDAO: Record<ResumoContaIa["prontidao"], string> = {
 export function ContaDemoSection() {
   const [resumo, setResumo] = useState<ResumoContaIa | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [destino, setDestino] = useState<ModalidadeIa>("beculture");
-  const [plano, setPlano] = useState<PlanoIa>("essencial");
+  /** Plano B2C de destino, ou "organizacao" (só para conta legada). */
+  const [destino, setDestino] = useState<PlanoIa | "organizacao">("pro");
   const [reiniciar, setReiniciar] = useState(false);
   const [salvando, setSalvando] = useState(false);
   // Migrar muda as opções do seletor de modelos do topo.
@@ -52,13 +51,12 @@ export function ContaDemoSection() {
       .contaDemo()
       .then((r) => {
         setResumo(r);
-        if (r.planoIa) setPlano(r.planoIa);
         setDestino(
-          r.modalidade === "beculture"
-            ? "byok"
-            : r.modalidade === "byok"
-              ? "beculture"
-              : "organizacao",
+          r.modalidade === "organizacao"
+            ? "organizacao"
+            : r.planoIa === "pro"
+              ? "essencial"
+              : "pro",
         );
       })
       .catch((e) => setErro(mensagemDeErro(e)));
@@ -78,24 +76,32 @@ export function ContaDemoSection() {
   }
 
   const b2b = resumo.modalidade === "organizacao";
-  const opcoes: ModalidadeIa[] =
+  const opcoes: (PlanoIa | "organizacao")[] =
     resumo.modalidade === "legado"
-      ? ["beculture", "byok", "organizacao"]
-      : b2b
-        ? ["organizacao"]
-        : ["beculture", "byok"];
+      ? ["essencial", "pro", "organizacao"]
+      : ["essencial", "pro"];
+  const atual = (o: PlanoIa | "organizacao") =>
+    o === "organizacao" ? b2b : !b2b && resumo.planoIa === o;
 
   const migrar = async () => {
     setSalvando(true);
     try {
-      const r = await backoffice.migrar({
-        modalidadeIa: destino,
-        planoIa: destino === "beculture" ? plano : undefined,
-        reiniciarOnboarding: reiniciar,
-      });
+      const r = await backoffice.migrar(
+        destino === "organizacao"
+          ? { modalidadeIa: "organizacao", reiniciarOnboarding: reiniciar }
+          : {
+              modalidadeIa: "beculture",
+              planoIa: destino,
+              reiniciarOnboarding: reiniciar,
+            },
+      );
       setResumo(r);
       recarregarModelos();
-      toast.success(`Conta agora em: ${ROTULO_MODALIDADE[r.modalidade]}.`);
+      toast.success(
+        r.planoIa
+          ? `Conta agora no plano ${ROTULO_PLANO[r.planoIa]}.`
+          : `Conta agora em: ${ROTULO_MODALIDADE[r.modalidade]}.`,
+      );
     } catch (e) {
       toast.error(mensagemDeErro(e));
     } finally {
@@ -124,9 +130,29 @@ export function ContaDemoSection() {
             v={
               resumo.chavesProprias.total === 0
                 ? "Nenhuma"
-                : `${resumo.chavesProprias.total} (${resumo.chavesProprias.utilizaveis} utilizáveis)${resumo.chavesProprias.congeladas ? " · guardadas, sem uso no plano BeCulture" : ""}`
+                : `${resumo.chavesProprias.total} (${resumo.chavesProprias.utilizaveis} utilizáveis)`
             }
           />
+          {resumo.cota && (
+            <Linha
+              k="Cota BeCulture no ciclo"
+              v={
+                resumo.cota.limite === null
+                  ? `${resumo.cota.total.toLocaleString("pt-BR")} tokens · sem limite definido`
+                  : `${resumo.cota.total.toLocaleString("pt-BR")} de ${resumo.cota.limite.toLocaleString("pt-BR")} tokens${resumo.cota.esgotada ? " · esgotada" : ""}`
+              }
+            />
+          )}
+          {resumo.byokAposCota && (
+            <Linha
+              k="Chaves próprias após a cota"
+              v={
+                resumo.byokAposCota.autorizado && resumo.byokAposCota.ate
+                  ? `Autorizado até ${new Date(resumo.byokAposCota.ate).toLocaleDateString("pt-BR")}`
+                  : "Não autorizado"
+              }
+            />
+          )}
           <Linha
             k="Onboarding"
             v={
@@ -139,8 +165,8 @@ export function ContaDemoSection() {
       </SectionCard>
 
       <SectionCard
-        titulo="Migrar modalidade"
-        descricao="Representa a troca de plano. Nenhuma cobrança ou regra comercial de migração é aplicada — só o estado e o comportamento da conta."
+        titulo="Trocar plano"
+        descricao="Simula o upgrade (ou downgrade) do plano B2C. Nenhuma cobrança ou regra comercial é aplicada — muda só a cota e o estado da conta."
       >
         {b2b ? (
           <p className="dark:text-dark-200 text-sm text-gray-600">
@@ -164,40 +190,26 @@ export function ContaDemoSection() {
                   />
                   <span>
                     <span className="dark:text-dark-100 block text-sm font-medium text-gray-800">
-                      {ROTULO_MODALIDADE[m]}
-                      {m === resumo.modalidade && " (atual)"}
+                      {m === "organizacao"
+                        ? ROTULO_MODALIDADE.organizacao
+                        : `B2C · ${ROTULO_PLANO[m]}`}
+                      {atual(m) && " (atual)"}
                     </span>
                     <span className="dark:text-dark-300 block text-xs text-gray-500">
-                      {m === "beculture"
-                        ? "Chaves próprias ficam guardadas e sem uso. A IA passa a usar só os modelos BeCulture do plano."
-                        : m === "byok"
-                          ? "A IA passa a usar só as chaves do usuário. Chaves guardadas voltam a valer."
-                          : "Organização com chaves próprias."}
+                      {m === "organizacao"
+                        ? "Organização com chaves próprias."
+                        : "Cota de modelos BeCulture do plano + chaves próprias opcionais em IA & API."}
                     </span>
                   </span>
                 </label>
               ))}
             </div>
-            {destino === "beculture" && (
-              <label className="dark:text-dark-300 mt-3 flex items-center gap-2 text-sm text-gray-600">
-                Plano:
-                <select
-                  className="form-select dark:border-dark-450 dark:bg-dark-700 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
-                  value={plano}
-                  onChange={(e) => setPlano(e.target.value as PlanoIa)}
-                >
-                  <option value="essencial">Essencial</option>
-                  <option value="pro">Pro</option>
-                </select>
-              </label>
-            )}
             <label className="dark:text-dark-300 mt-3 flex items-center gap-2 text-sm text-gray-600">
               <Checkbox
                 checked={reiniciar}
                 onChange={(e) => setReiniciar(e.target.checked)}
               />
-              Reiniciar o onboarding de IA (para percorrer o fluxo da nova
-              modalidade)
+              Reiniciar o onboarding de IA (para percorrer o fluxo de novo)
             </label>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button

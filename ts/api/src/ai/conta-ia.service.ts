@@ -6,10 +6,6 @@ import { ModalidadeService, type ModalidadeEfetiva } from './modalidade.service'
 import { PlataformaIaService } from './plataforma.service';
 import { FranquiaService } from './franquia.service';
 import { AiCredentialsService } from './credentials.service';
-import {
-  PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS,
-  PrototipoIaService,
-} from './prototipo.service';
 
 /**
  * Estados de prontidão da IA de uma conta. Cada um tem uma tela própria na
@@ -17,9 +13,9 @@ import {
  */
 export type ProntidaoIa =
   | 'pronta'
-  /** B2C BeCulture: a plataforma não disponibilizou modelos para o plano. */
+  /** B2C: a plataforma não disponibilizou modelos BeCulture. */
   | 'sem_modelos_plataforma'
-  /** BYOK/B2B: nenhuma chave cadastrada. */
+  /** B2B: nenhuma chave cadastrada. */
   | 'sem_chave'
   /** BYOK/B2B: há chaves, mas todas foram recusadas pelo provedor. */
   | 'chave_invalida'
@@ -28,12 +24,15 @@ export type ProntidaoIa =
   /** BYOK/B2B: chave conectada, mas nenhum modelo habilitado nas filas. */
   | 'sem_modelos_habilitados';
 
-/** Regras de migração entre modalidades B2C (aplicadas no backend). */
+/**
+ * Regras de migração (aplicadas no backend). B2C é unificado: a única troca é
+ * de plano (Essencial ↔ Pro), feita dentro da própria modalidade.
+ */
 const MIGRACOES_PERMITIDAS: Record<ModalidadeEfetiva, ModalidadeEfetiva[]> = {
-  beculture: ['byok'],
-  byok: ['beculture'],
+  beculture: [],
+  byok: [],
   organizacao: [],
-  legado: ['beculture', 'byok', 'organizacao'],
+  legado: ['beculture', 'organizacao'],
 };
 
 @Injectable()
@@ -45,13 +44,10 @@ export class ContaIaService {
     private readonly plataforma: PlataformaIaService,
     private readonly franquia: FranquiaService,
     private readonly credentials: AiCredentialsService,
-    private readonly prototipo: PrototipoIaService,
   ) {}
 
   async resumo(empresaId: string, usuarioId: string) {
     const ctx = await this.modalidade.contexto(empresaId);
-    const temChaveOperacional =
-      (await this.prototipo.chavesTexto()).length > 0;
     const [creds, filaTexto, filaMidia, podeAdministrar] = await Promise.all([
       this.credentials.listPublic(empresaId),
       this.prisma.aiConnection.count({
@@ -75,10 +71,18 @@ export class ContaIaService {
     > = [];
     let consumo: Awaited<ReturnType<FranquiaService['consumo']>> | null = null;
 
+    let cota: Awaited<ReturnType<FranquiaService['estado']>> | null = null;
+    let byokAposCota: Awaited<ReturnType<FranquiaService['byokAutorizado']>> | null =
+      null;
+
     if (ctx.modalidade === 'beculture') {
       const plano = ctx.planoIa as PlanoIaB2c;
-      modelosPlataforma = await this.plataforma.disponiveisNoPlano(plano);
-      consumo = await this.franquia.consumo(usuarioId, plano);
+      [modelosPlataforma, consumo, cota, byokAposCota] = await Promise.all([
+        this.plataforma.disponiveisNoPlano(plano),
+        this.franquia.consumo(usuarioId, plano),
+        this.franquia.estado(usuarioId, plano),
+        this.franquia.byokAutorizado(usuarioId),
+      ]);
       if (!modelosPlataforma.some((m) => m.kind === 'text')) {
         prontidao = 'sem_modelos_plataforma';
       }
@@ -94,80 +98,45 @@ export class ContaIaService {
       } else if (filaTexto + filaMidia === 0) {
         prontidao = 'sem_modelos_habilitados';
       }
-      if (
-        ctx.modalidade === 'legado' &&
-        prontidao !== 'pronta' &&
-        temChaveOperacional
-      ) {
-        // Conta legada não tem exigência de chave própria: roda pela chave
-        // operacional do protótipo.
+      if (ctx.modalidade === 'legado' && prontidao !== 'pronta') {
+        // Conta legada não tem exigência de chave própria (trial gerenciado).
         prontidao = 'pronta';
       }
     }
 
-    // Quem executa as chamadas de texto agora. BYOK/B2B sem chave própria
-    // utilizável caem na chave operacional SÓ no protótipo — a prontidão da
-    // conta continua refletindo a regra do produto ("sem chave").
-    // No protótipo as chaves da conta são demonstrativas: quem executa é
-    // sempre a chave operacional do Backoffice.
-    const execucao: 'propria' | 'prototipo' | 'indisponivel' =
-      !PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS &&
-      ctx.modalidade !== 'beculture' &&
-      filaTexto > 0
-        ? 'propria'
-        : temChaveOperacional
-          ? 'prototipo'
-          : 'indisponivel';
+    // Quem executa as chamadas de texto agora. No protótipo, o B2C também
+    // responde pelas chaves próprias de IA & API (modelos BeCulture são
+    // demonstrativos), então sem fila própria não há resposta real.
+    const execucao: 'propria' | 'indisponivel' =
+      filaTexto > 0 ? 'propria' : 'indisponivel';
+    const temChavePropria = filaTexto > 0;
 
     return {
       modalidade: ctx.modalidade,
       modalidadeComercial: ctx.modalidadeComercial,
       planoIa: ctx.planoIa,
-      origemCredenciais:
-        ctx.modalidade === 'beculture'
-          ? 'plataforma'
-          : this.modalidade.origemPropria(ctx.modalidade),
+      // Dono das chaves cadastradas em IA & API (B2C: o usuário).
+      origemCredenciais: this.modalidade.origemPropria(ctx.modalidade),
       prontidao,
       execucao,
       onboarding: {
         etapas: ctx.onboardingEtapas,
         concluidoEm: ctx.onboardingConcluidoEm,
       },
-      podeGerenciarChaves: ctx.modalidade !== 'beculture' && podeAdministrar,
+      podeGerenciarChaves: podeAdministrar,
       podeAdministrarIa: podeAdministrar,
       chavesProprias: {
         total: creds.length,
         utilizaveis: creds.filter((c) => c.ativa && c.status !== 'invalida')
           .length,
-        /** Guardadas, mas sem uso enquanto o plano for BeCulture. */
-        congeladas: ctx.modalidade === 'beculture' && creds.length > 0,
+        /** Mantido por compatibilidade: no B2C unificado nada fica congelado. */
+        congeladas: false,
       },
-      /**
-       * Chaves de Backoffice → Modelos BeCulture disponíveis para o usuário
-       * (ativas e com ao menos um modelo publicado no plano). O valor da chave
-       * nunca sai: o usuário vê o provedor, o nome da conexão e os modelos.
-       */
-      chavesPlataforma:
-        ctx.modalidade === 'beculture'
-          ? (await this.plataforma.listarCredenciais())
-              .filter((c) => c.ativa)
-              .map((c) => ({
-                id: c.id,
-                provider: c.provider,
-                providerNome: c.providerNome,
-                nome: c.nome,
-                modelos: modelosPlataforma.filter((m) => m.credencialId === c.id)
-                  .length,
-                kinds: [
-                  ...new Set(
-                    modelosPlataforma
-                      .filter((m) => m.credencialId === c.id)
-                      .map((m) => m.kind),
-                  ),
-                ],
-              }))
-              .filter((c) => c.modelos > 0)
-          : [],
+      temChavePropria,
+      /** B2C: cota BeCulture do plano no ciclo (tokens). */
+      cota,
+      /** B2C: autorização para usar as chaves próprias após a cota. */
+      byokAposCota,
       modelosPlataforma: modelosPlataforma.map((m) => ({
         id: m.id,
         credencialId: m.credencialId,
@@ -186,8 +155,7 @@ export class ContaIaService {
 
   async concluirOnboarding(empresaId: string, usuarioId: string) {
     const r = await this.resumo(empresaId, usuarioId);
-    const exigeConfiguracao =
-      r.modalidade === 'byok' || r.modalidade === 'organizacao';
+    const exigeConfiguracao = r.modalidade === 'organizacao';
     if (exigeConfiguracao && r.prontidao !== 'pronta') {
       throw new BadRequestException({
         statusCode: 400,
@@ -206,26 +174,20 @@ export class ContaIaService {
 
 
   /**
-   * Migração de modalidade (Backoffice do protótipo).
-   *  - BeCulture ↔ BYOK: permitido; credenciais próprias são PRESERVADAS. Em
-   *    BeCulture ficam congeladas (sem uso nem edição); ao voltar para BYOK
-   *    voltam a valer. Nunca há fallback entre os dois contextos.
+   * Migração (Backoffice do protótipo → Conta em demonstração).
+   *  - B2C: troca de plano Essencial ↔ Pro (simula o upgrade). Chaves próprias
+   *    e a autorização de uso após a cota são preservadas.
    *  - B2C ↔ B2B: não permitido (contextos comerciais distintos).
-   *  - Legado → qualquer uma (para demonstrar contas antigas).
+   *  - Legado → B2C ou B2B (para demonstrar contas antigas).
    */
   async migrar(
     empresaId: string,
     usuarioId: string,
-    destino: { modalidadeIa: 'beculture' | 'byok' | 'organizacao'; planoIa?: PlanoIaB2c },
+    destino: { modalidadeIa: 'beculture' | 'organizacao'; planoIa?: PlanoIaB2c },
     reiniciarOnboarding = false,
   ) {
     const ctx = await this.modalidade.contexto(empresaId);
-    const mesma =
-      ctx.modalidade === destino.modalidadeIa &&
-      (destino.modalidadeIa !== 'beculture' ||
-        (destino.planoIa ?? ctx.planoIa) === ctx.planoIa);
     if (
-      !mesma &&
       ctx.modalidade !== destino.modalidadeIa &&
       !MIGRACOES_PERMITIDAS[ctx.modalidade].includes(destino.modalidadeIa)
     ) {

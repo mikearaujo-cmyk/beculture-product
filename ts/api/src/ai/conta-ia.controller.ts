@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Post,
   Put,
@@ -16,6 +17,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { ContaIaService } from './conta-ia.service';
 import { ModalidadeService } from './modalidade.service';
 import { ModelosContaService } from './modelos-conta.service';
+import { FranquiaService } from './franquia.service';
 
 class DefinirModalidadeDto {
   @IsIn(['beculture', 'byok', 'organizacao'])
@@ -52,6 +54,7 @@ export class ContaIaController {
     private readonly modalidade: ModalidadeService,
     private readonly prisma: PrismaService,
     private readonly modelos: ModelosContaService,
+    private readonly franquia: FranquiaService,
   ) {}
 
   /**
@@ -103,16 +106,14 @@ export class ContaIaController {
         'A modalidade já foi definida. Mudanças de plano são feitas como migração.',
       );
     }
+    // B2C unificado: o antigo "B2C BYOK" é gravado como B2C (beculture).
     const b2b = dto.modalidadeIa === 'organizacao';
     await this.prisma.empresa.update({
       where: { id: user.empresaId },
       data: {
         modalidadeComercial: b2b ? 'b2b' : 'b2c',
-        modalidadeIa: dto.modalidadeIa,
-        planoIa:
-          dto.modalidadeIa === 'beculture'
-            ? (dto.planoIa ?? 'essencial')
-            : null,
+        modalidadeIa: b2b ? 'organizacao' : 'beculture',
+        planoIa: b2b ? null : (dto.planoIa ?? 'essencial'),
       },
     });
     await this.modalidade.marcarEtapa(user.empresaId, 'plano');
@@ -134,5 +135,27 @@ export class ContaIaController {
   @Post('onboarding/concluir')
   concluir(@CurrentUser() user: AuthenticatedUser) {
     return this.contaIa.concluirOnboarding(user.empresaId, user.id);
+  }
+
+  /**
+   * POST /conta/byok-apos-cota → autorização EXPLÍCITA do usuário (B2C) para
+   * usar as próprias chaves de IA & API quando a cota BeCulture esgotar. Vale
+   * até a cota renovar. Sem ela, a plataforma nunca usa BYOK automaticamente.
+   */
+  @Post('byok-apos-cota')
+  async autorizarByok(@CurrentUser() user: AuthenticatedUser) {
+    const ctx = await this.modalidade.contexto(user.empresaId);
+    if (ctx.modalidade !== 'beculture') {
+      throw new BadRequestException('Disponível apenas para contas B2C.');
+    }
+    await this.franquia.autorizarByok(user.id);
+    return this.contaIa.resumo(user.empresaId, user.id);
+  }
+
+  /** DELETE /conta/byok-apos-cota → revoga a autorização. */
+  @Delete('byok-apos-cota')
+  async revogarByok(@CurrentUser() user: AuthenticatedUser) {
+    await this.franquia.revogarByok(user.id);
+    return this.contaIa.resumo(user.empresaId, user.id);
   }
 }

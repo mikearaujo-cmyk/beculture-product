@@ -24,7 +24,10 @@ export function lerPlanoEscolhido(): PlanoEscolhido | null {
     if (!["beculture", "byok", "organizacao"].includes(v.modalidadeIa)) {
       return null;
     }
-    return v;
+    // B2C unificado: escolhas antigas de "byok" viram B2C.
+    return v.modalidadeIa === "byok"
+      ? { modalidadeIa: "beculture", planoIa: v.planoIa ?? "essencial" }
+      : v;
   } catch {
     return null;
   }
@@ -58,33 +61,17 @@ export const MODALIDADES: {
   {
     id: "beculture",
     contexto: "B2C",
-    titulo: "Modelos BeCulture",
-    resumo: "Use a IA pronta, sem configurar chaves.",
+    titulo: "BeCulture B2C",
+    resumo: "IA pronta com cota do plano — e suas chaves, se quiser.",
     regras: [
-      { rotulo: "Quem fornece a IA", valor: "BeCulture" },
-      { rotulo: "Custo dos tokens", valor: "Incluído no plano" },
-      { rotulo: "Franquia", valor: "Sim, com limites do plano" },
+      { rotulo: "Quem fornece a IA", valor: "BeCulture (cota do plano)" },
+      { rotulo: "Chaves próprias", valor: "Opcionais, em IA & API" },
+      { rotulo: "Cota", valor: "Tokens por ciclo, conforme o plano" },
     ],
     destaques: [
-      "Modelos escolhidos e mantidos pela BeCulture",
-      "Sem cadastro de chaves de API",
-      "Disponibilidade de modelos conforme o plano",
-    ],
-  },
-  {
-    id: "byok",
-    contexto: "B2C",
-    titulo: "BYOK — Traga sua chave",
-    resumo: "Conecte suas próprias chaves de IA.",
-    regras: [
-      { rotulo: "Quem fornece a IA", valor: "Você (suas chaves)" },
-      { rotulo: "Custo dos tokens", valor: "Pago direto ao provedor" },
-      { rotulo: "Franquia", valor: "Não há franquia BeCulture" },
-    ],
-    destaques: [
-      "Várias chaves e provedores compatíveis",
-      "Você ativa, desativa e remove credenciais",
-      "Escolha os modelos e a ordem de uso",
+      "Escolha o modelo BeCulture ou o Automático no topo",
+      "Cadastre suas chaves para continuar quando a cota acabar",
+      "Uso nas suas chaves só com a sua autorização",
     ],
   },
   {
@@ -113,11 +100,11 @@ export const PLANOS_B2C: {
   {
     id: "essencial",
     titulo: "Essencial",
-    descricao: "Modelos para o dia a dia, com franquia de entrada.",
+    descricao: "Todos os modelos BeCulture, com a cota de entrada.",
   },
   {
     id: "pro",
     titulo: "Pro",
-    descricao: "Mais modelos e limites maiores.",
+    descricao: "Todos os modelos BeCulture, com uma cota maior.",
   },
 ];

@@ -230,6 +230,10 @@ model Usuario {
   /// { text?: string, image?: string, video?: string } ("auto" = orquestrador).
   /// Vale para todas as ações até o usuário trocar de novo.
   modelosPreferidos Json?
+  /// Autorização explícita (B2C) para usar as chaves próprias quando a cota
+  /// BeCulture do plano esgotar. Vale enquanto for >= início do ciclo atual
+  /// da cota (ou seja, até a cota renovar). Null = não autorizado.
+  byokAposCotaEm    DateTime?
   criadoEm          DateTime @default(now())
 
   empresa   Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)

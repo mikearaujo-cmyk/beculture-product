@@ -4,8 +4,10 @@
  * Centraliza os controles da demonstração em áreas com responsabilidades
  * separadas — nenhuma compartilha credencial ou configuração com outra:
  *   - Repositórios: seleção de pasta local por repositório (já existente)
- *   - Configuração de API: chave operacional REAL que executa as chamadas
- *   - Modelos BeCulture: catálogo administrativo DEMONSTRATIVO dos planos B2C
+ *   - Modelos BeCulture: catálogo DEMONSTRATIVO que alimenta o seletor do
+ *     Navbar do B2C, e a cota de tokens por plano
+ * As chaves que executam IA no protótipo são as do próprio usuário, em
+ * Configurações → IA & API.
  *   - Conta em demonstração: migração de cenário da conta logada
  *
  * Acesso: no protótipo, qualquer conta. Na versão comercial é área interna da
@@ -15,7 +17,6 @@
 import {
   CircleStackIcon,
   FolderIcon,
-  KeyIcon,
   Squares2X2Icon,
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
@@ -27,11 +28,10 @@ import { PageTitle } from "@/components/shared/PageTitle";
 import { NavegacaoSecoes, type GrupoNavegacao } from "../NavegacaoSecoes";
 import { SectionCard } from "../configuracoes-ui";
 import { PastaLocalPanel } from "../PastaLocalPanel";
-import { ConfiguracaoApiSection } from "./ConfiguracaoApiSection";
 import { ContaDemoSection } from "./ContaDemoSection";
 import { IaPlataformaSection } from "./IaPlataformaSection";
 
-type SecaoBackoffice = "repositorios" | "api" | "modelos" | "conta";
+type SecaoBackoffice = "repositorios" | "modelos" | "conta";
 
 const GRUPOS: readonly GrupoNavegacao[] = [
   {
@@ -39,7 +39,6 @@ const GRUPOS: readonly GrupoNavegacao[] = [
     titulo: "Infraestrutura do protótipo",
     itens: [
       { id: "repositorios", titulo: "Repositórios", icon: FolderIcon },
-      { id: "api", titulo: "Configuração de API", icon: KeyIcon },
     ],
   },
   {
@@ -58,15 +57,15 @@ const GRUPOS: readonly GrupoNavegacao[] = [
   },
 ];
 
-const SECOES: SecaoBackoffice[] = ["repositorios", "api", "modelos", "conta"];
-/** Links antigos (`?secao=ia`) apontavam para o catálogo. */
-const ALIASES: Record<string, SecaoBackoffice> = { ia: "modelos" };
+const SECOES: SecaoBackoffice[] = ["repositorios", "modelos", "conta"];
+/** Links antigos: `?secao=ia` (catálogo) e `?secao=api` (área removida). */
+const ALIASES: Record<string, SecaoBackoffice> = { ia: "modelos", api: "modelos" };
 
 export default function Backoffice() {
   const [params, setParams] = useSearchParams();
   const bruta = params.get("secao") ?? "";
   const pedida = (ALIASES[bruta] ?? bruta) as SecaoBackoffice;
-  const ativa: SecaoBackoffice = SECOES.includes(pedida) ? pedida : "api";
+  const ativa: SecaoBackoffice = SECOES.includes(pedida) ? pedida : "modelos";
 
   return (
     <Page title="Backoffice · protótipo">
@@ -84,18 +83,15 @@ export default function Backoffice() {
                     no protótipo, qualquer conta acessa.
                   </p>
                   <p>
-                    <strong>Configuração de API</strong> guarda a chave real que
-                    executa as chamadas de IA do protótipo. Não é um plano nem a
-                    chave de um usuário.
+                    <strong>Modelos BeCulture</strong> é o catálogo que aparece
+                    no seletor do Navbar das contas B2C, e onde se define a cota
+                    de tokens de cada plano. As chaves de lá são exemplos e não
+                    executam chamadas: no protótipo, quem responde é a chave que
+                    o usuário cadastra em Configurações → IA &amp; API.
                   </p>
                   <p>
-                    <strong>Modelos BeCulture</strong> demonstra como a equipe
-                    interna cadastraria provedores e publicaria modelos nos
-                    planos B2C. As credenciais de lá não executam chamadas.
-                  </p>
-                  <p>
-                    <strong>Conta em demonstração</strong> migra a conta logada
-                    entre modalidades, para ver como cada uma se comporta.
+                    <strong>Conta em demonstração</strong> troca o plano da
+                    conta logada (Essencial ↔ Pro), para simular um upgrade.
                   </p>
                 </>
               ),
@@ -126,7 +122,6 @@ export default function Backoffice() {
                 <PastaLocalPanel />
               </SectionCard>
             )}
-            {ativa === "api" && <ConfiguracaoApiSection />}
             {ativa === "modelos" && <IaPlataformaSection />}
             {ativa === "conta" && <ContaDemoSection />}
           </div>

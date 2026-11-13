@@ -4,19 +4,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { AiProvider, PlanoIaB2c } from '@prisma/client';
+import type { PlanoIaB2c } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CryptoService } from './crypto';
 import {
   isKnownModelFor,
   isKnownProvider,
-  isLlmProvider,
   modelsOf,
   providerName,
   providerServes,
   type AiModality,
 } from './catalogo';
-import { getProvider } from './providers';
 
 export const PLANOS_IA: PlanoIaB2c[] = ['essencial', 'pro'];
 
@@ -166,24 +164,11 @@ export class PlataformaIaService {
       where: { id },
     });
     if (!atual) throw new NotFoundException('Credencial não encontrada.');
-    const apiKey = this.crypto.decrypt(atual.apiKeyEncrypted);
-    let status: 'ativa' | 'invalida' = 'ativa';
-    let validatedAt: Date | null = null;
-    let aviso: string | undefined;
-    if (isLlmProvider(atual.provider)) {
-      const check = await getProvider(atual.provider).validateKey(apiKey);
-      if (check.status === 'invalida') {
-        status = 'invalida';
-        aviso = `O provedor recusou a chave: ${check.detalhe}`;
-      } else if (check.status === 'indeterminada') {
-        aviso = `O provedor não confirmou a chave: ${check.detalhe}`;
-      } else {
-        validatedAt = new Date();
-      }
-    } else {
-      aviso =
-        'Validação automática ainda não está disponível para este provedor no protótipo.';
-    }
+    // Exemplo demonstrativo: sem chamada ao provedor (ver `validar`).
+    const status = 'ativa' as const;
+    const validatedAt: Date | null = null;
+    const aviso =
+      'Chave de exemplo: no protótipo os modelos BeCulture não executam chamadas, então ela não é validada no provedor.';
     await this.prisma.plataformaCredencial.update({
       where: { id },
       data: { status, validatedAt },
@@ -442,26 +427,11 @@ export class PlataformaIaService {
     if (!apiKey || apiKey.length < 8) {
       throw new BadRequestException('A chave de API parece curta demais.');
     }
-    if (!isLlmProvider(provider)) {
-      return {
-        validatedAt: null,
-        aviso:
-          'Validação automática ainda não está disponível para este provedor no protótipo: a chave foi salva sem confirmação.',
-      };
-    }
-    const check = await getProvider(provider as AiProvider).validateKey(apiKey);
-    if (check.status === 'invalida') {
-      throw new BadRequestException(
-        `O provedor recusou esta chave: ${check.detalhe}`,
-      );
-    }
-    if (check.status === 'indeterminada') {
-      return {
-        validatedAt: null,
-        aviso: `A chave foi salva, mas o provedor não confirmou que ela funciona: ${check.detalhe}`,
-      };
-    }
-    return { validatedAt: new Date() };
+    // Chaves de Modelos BeCulture são EXEMPLOS no protótipo: não executam
+    // chamadas (quem responde é a chave do usuário em IA & API), então não
+    // são enviadas ao provedor para validação.
+    void provider;
+    return { validatedAt: null };
   }
 }
 

@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
-import { PrototipoIaService } from './prototipo.service';
 import { AiService } from './ai.service';
 import { AiConnectionsService } from './connections.service';
 import { AiMediaConnectionsService } from './media-connections.service';
@@ -46,7 +45,6 @@ export class AudioController {
     private readonly connections: AiConnectionsService,
     private readonly media: AiMediaConnectionsService,
     private readonly config: ConfigService,
-    private readonly prototipo: PrototipoIaService,
   ) {}
 
   /**
@@ -67,8 +65,8 @@ export class AudioController {
       if (conn) return conn.apiKey;
     }
 
-    // Sem chave própria: chave operacional do protótipo (Backoffice → .env).
-    return (await this.prototipo.chave('openai'))?.apiKey ?? '';
+    // Sem chave própria: chave do servidor (.env).
+    return this.config.get<string>('OPENAI_API_KEY') ?? '';
   }
 
   /**

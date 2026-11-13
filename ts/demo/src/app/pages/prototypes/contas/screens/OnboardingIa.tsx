@@ -320,7 +320,7 @@ function renderEtapa(
       return {
         titulo: "Como obter sua chave de API",
         subtitulo:
-          "No plano BYOK a IA roda com as suas chaves. O uso é cobrado pelo provedor, não pela BeCulture.",
+          "Com chaves próprias a IA roda na sua conta do provedor. O uso é cobrado pelo provedor, não pela BeCulture.",
         conteudo: <GuiaChave />,
         podeAvancar: true,
         rotuloAvancar: "Já tenho minha chave",
@@ -605,7 +605,11 @@ function Confirmacao({ r }: { r: ResumoContaIa }) {
             ? r.modelosPlataforma.map((m) => m.rotulo).join(", ")
             : "Aguardando disponibilização pela BeCulture",
       },
-      { k: "Custos de IA", v: "Incluídos no plano, sujeitos à franquia" },
+      { k: "Custos de IA", v: "Incluídos no plano, sujeitos à cota" },
+      {
+        k: "Chaves próprias",
+        v: "Opcionais, em Configurações → IA & API (no protótipo, são elas que geram as respostas)",
+      },
     );
   } else {
     linhas.push(

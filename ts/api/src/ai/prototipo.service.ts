@@ -12,6 +12,12 @@ import { isKnownModelFor, isLlmProvider, providerName } from './catalogo';
 import { getProvider } from './providers';
 
 /**
+ * FORA DO FLUXO: a área "Backoffice → Configuração de API" foi removida e
+ * nenhuma chamada usa mais esta chave — no protótipo, quem executa é a chave
+ * cadastrada pelo usuário em Configurações → IA & API. A tabela
+ * `prototipo_credenciais` foi mantida (sem apagar dados); este serviço segue
+ * registrado só por causa da constante abaixo e para reuso futuro.
+ *
  * Configuração de API do PROTÓTIPO — a chave operacional real que executa as
  * chamadas de IA da infraestrutura atual.
  *
@@ -293,4 +299,4 @@ export class PrototipoIaService {
  * a chave operacional do Backoffice. Para o comportamento de produto (chaves
  * da conta executando de verdade), troque para `false`.
  */
-export const PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS = true;
+export const PROTOTIPO_CHAVES_DA_CONTA_DEMONSTRATIVAS = false;

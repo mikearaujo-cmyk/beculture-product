@@ -16,6 +16,7 @@ import { IaModalsHostProvider } from "@/app/contexts/ia-modals/Provider";
 import { AssistenteHostProvider } from "@/app/contexts/assistente/Provider";
 import { ModeloIaProvider } from "@/app/contexts/modelo-ia/Provider";
 import { applyAppearancePrefs } from "@/utils/beculturePrefs";
+import { CotaEsgotadaModal } from "@/components/shared/CotaEsgotadaModal";
 
 /**
  * Providers com dados de conta. Remontam quando o usuário muda (login/logout
@@ -58,6 +59,7 @@ export function AccountScopedProviders({ children }: { children: ReactNode }) {
                     <DocumentoUploadProvider>
                       <AssistenteHostProvider>
                         <IaModalsHostProvider>{children}</IaModalsHostProvider>
+                        <CotaEsgotadaModal />
                       </AssistenteHostProvider>
                     </DocumentoUploadProvider>
                     </ModeloIaProvider>

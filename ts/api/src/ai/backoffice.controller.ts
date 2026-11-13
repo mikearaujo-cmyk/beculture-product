@@ -28,7 +28,6 @@ import { CurrentUser } from '@/common/current-user.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 import { PlataformaIaService, PLANOS_IA } from './plataforma.service';
 import { ContaIaService } from './conta-ia.service';
-import { PrototipoIaService } from './prototipo.service';
 import { BackofficeGuard } from './backoffice.guard';
 import { UNIFIED_CATALOG, type AiModality } from './catalogo';
 
@@ -120,19 +119,6 @@ class AtualizarModeloDto {
   kind?: AiModality;
 }
 
-class ChaveOperacionalDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(8, { message: 'A chave de API parece curta demais.' })
-  apiKey?: string;
-
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
-  @IsString()
-  @MaxLength(120)
-  modeloPadrao?: string | null;
-}
-
 class ModeloPlanoDto {
   @IsBoolean()
   habilitado!: boolean;
@@ -157,8 +143,8 @@ class FranquiaDto {
 }
 
 class MigrarDto {
-  @IsIn(['beculture', 'byok', 'organizacao'])
-  modalidadeIa!: 'beculture' | 'byok' | 'organizacao';
+  @IsIn(['beculture', 'organizacao'])
+  modalidadeIa!: 'beculture' | 'organizacao';
 
   @IsOptional()
   @IsIn(PLANOS_IA)
@@ -175,9 +161,9 @@ function parsePlano(plano: string): PlanoIaB2c {
 }
 
 /**
- * Backoffice do PROTÓTIPO, com três contextos separados:
- *   - Configuração de API: chave operacional real (`prototipo_credenciais`)
- *   - Modelos BeCulture: catálogo demonstrativo (`plataforma_*`)
+ * Backoffice do PROTÓTIPO, com dois contextos separados:
+ *   - Modelos BeCulture: catálogo demonstrativo (`plataforma_*`) que alimenta
+ *     o seletor do Navbar do B2C, e a cota por plano (tokens por ciclo)
  *   - Conta em demonstração: cenário da conta logada
  * Nenhum deles se mistura com as chaves BYOK/B2B (`ai_credentials`).
  *
@@ -190,33 +176,7 @@ export class BackofficeController {
   constructor(
     private readonly plataforma: PlataformaIaService,
     private readonly contaIa: ContaIaService,
-    private readonly prototipo: PrototipoIaService,
   ) {}
-
-  // ---------- Configuração de API (chave operacional do protótipo) ----------
-
-  @Get('api-operacional')
-  chavesOperacionais() {
-    return this.prototipo.listar();
-  }
-
-  @Put('api-operacional/:provider')
-  salvarChaveOperacional(
-    @Param('provider') provider: string,
-    @Body() dto: ChaveOperacionalDto,
-  ) {
-    return this.prototipo.salvar(provider, dto);
-  }
-
-  @Post('api-operacional/:provider/testar')
-  testarChaveOperacional(@Param('provider') provider: string) {
-    return this.prototipo.testar(provider);
-  }
-
-  @Delete('api-operacional/:provider')
-  removerChaveOperacional(@Param('provider') provider: string) {
-    return this.prototipo.remover(provider);
-  }
 
   // ---------- Modelos BeCulture (catálogo demonstrativo) ----------
 
@@ -293,7 +253,7 @@ export class BackofficeController {
     return this.plataforma.definirPlano(id, parsePlano(plano), dto);
   }
 
-  // ---------- Planos (franquia provisória) ----------
+  // ---------- Cota por plano (tokens por ciclo; vazio = sem limite) ----------
 
   @Get('ia/planos')
   planos() {
