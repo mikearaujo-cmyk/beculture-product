@@ -19,6 +19,9 @@ import { CriacoesModule } from './criacoes/criacoes.module';
 import { ConectoresModule } from './conectores/conectores.module';
 import { McpModule } from './mcp/mcp.module';
 import { UsoModule } from './uso/uso.module';
+import { RepositorioAcessoModule } from './repositorio-acesso/repositorio-acesso.module';
+import { AuditoriaModule } from './auditoria/auditoria.module';
+import { CompartilhamentoModule } from './compartilhamento/compartilhamento.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -44,6 +47,9 @@ import { HealthController } from './health.controller';
     ConectoresModule,
     McpModule,
     UsoModule,
+    RepositorioAcessoModule,
+    AuditoriaModule,
+    CompartilhamentoModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

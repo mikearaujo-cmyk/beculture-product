@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 
 // Local Imports
 import {
+  capacidadesRepositorioOrg,
+  type CapacidadesRepositorioOrg,
   enviarDocumentoOrg,
   listarDocumentosOrg,
   removerDocumentoOrg,
@@ -35,6 +37,35 @@ export function useDonoRepositorio(): string | null {
 export function usePodeGerenciarRepositorio(): boolean {
   const papel = usePapelEfetivo();
   return papel === null || papel === "admin";
+}
+
+/**
+ * Capacidades REAIS no Repositório da organização, vindas do servidor (roles
+ * `documentos.*`). `null` enquanto carrega. O servidor recusa o que não é
+ * permitido de qualquer forma — isto só decide quais botões aparecem.
+ */
+export function useCapacidadesRepositorioOrg(): CapacidadesRepositorioOrg | null {
+  const [caps, setCaps] = useState<CapacidadesRepositorioOrg | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    capacidadesRepositorioOrg()
+      .then((c) => vivo && setCaps(c))
+      .catch(
+        () =>
+          vivo &&
+          setCaps({
+            visualizar: false,
+            usarIa: false,
+            enviar: false,
+            editar: false,
+            excluir: false,
+          }),
+      );
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  return caps;
 }
 
 /** Linha da tabela: o documento do servidor, ou um envio ainda em curso. */
@@ -132,7 +163,12 @@ export function useDocumentosOrg() {
     [dono, documentos],
   );
 
-  return { dono, documentos, carregando, erro, enviar, remover };
+  /** Troca a linha de um documento pela versão devolvida pelo servidor. */
+  const substituir = useCallback((doc: DocumentoOrg) => {
+    setDocumentos((prev) => prev.map((d) => (d.id === doc.id ? doc : d)));
+  }, []);
+
+  return { dono, documentos, carregando, erro, enviar, remover, substituir };
 }
 
 function mensagemDeErro(e: unknown, padrao: string): string {

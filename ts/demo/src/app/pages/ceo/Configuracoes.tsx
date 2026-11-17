@@ -24,6 +24,8 @@ import {
 import { RepositorioSection } from "./repositorio-org/RepositorioSection";
 import { AgentesOrganizacaoSection } from "./AgentesUsuarioSection";
 import { RepositorioArquivos } from "./repositorio-org/RepositorioArquivos";
+import { PoliticasCompartilhamentoSection } from "./compartilhamento/PoliticasCompartilhamentoSection";
+import { AuditoriaSection } from "./compartilhamento/AuditoriaSection";
 import { useDonoRepositorio } from "./repositorio-org/useDocumentosOrg";
 import {
   ROTULO_ESCOPO_PESSOAL,
@@ -202,6 +204,11 @@ export default function Configuracoes() {
               drawer fechado, filtros e busca zerados. Não aparece em code
               review, só na aba Network.
             */}
+            {active === "compartilhamento" && (
+              <PoliticasCompartilhamentoSection />
+            )}
+            {active === "auditoria" && <AuditoriaSection />}
+
             {ehSecaoAdministracao(active) && (
               <PainelAdministracao secao={active} onIrPara={selecionarSecao} />
             )}

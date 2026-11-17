@@ -20,10 +20,11 @@ import {
 } from "@/components/shared/ConfirmModal";
 import { formatDate } from "@/utils/arquivos";
 import {
+  useCapacidadesRepositorioOrg,
   useDocumentosOrg,
-  usePodeGerenciarRepositorio,
   type LinhaDocumentoOrg,
 } from "./useDocumentosOrg";
+import { DocumentoOrgModal } from "./DocumentoOrgModal";
 
 // ----------------------------------------------------------------------
 // Repositório → Visualizar arquivos
@@ -40,8 +41,13 @@ import {
 const ACCEPT = ".txt,.md,.markdown,.pdf,.docx,.csv,.json,.log";
 
 export function RepositorioArquivos({ onVoltar }: { onVoltar: () => void }) {
-  const { documentos, carregando, erro, enviar, remover } = useDocumentosOrg();
-  const podeGerenciar = usePodeGerenciarRepositorio();
+  const { dono, documentos, carregando, erro, enviar, remover, substituir } =
+    useDocumentosOrg();
+  // Permissões REAIS (roles `documentos.*`, conferidas no servidor).
+  const caps = useCapacidadesRepositorioOrg();
+  const podeGerenciar = !!caps?.enviar;
+  const podeExcluir = !!caps?.excluir;
+  const [aberto, setAberto] = useState<LinhaDocumentoOrg | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [busca, setBusca] = useState("");
   const [arrastando, setArrastando] = useState(false);
@@ -204,10 +210,19 @@ export function RepositorioArquivos({ onVoltar }: { onVoltar: () => void }) {
         <ListaDocumentos
           itens={filtrados}
           arrastando={arrastando}
-          podeGerenciar={podeGerenciar}
+          podeGerenciar={podeExcluir}
           onRemover={pedirRemocao}
+          onAbrir={setAberto}
         />
       )}
+
+      <DocumentoOrgModal
+        dono={dono}
+        doc={aberto}
+        podeEditar={!!caps?.editar}
+        close={() => setAberto(null)}
+        onEditado={substituir}
+      />
 
       <ConfirmModal
         show={removendo !== null}
@@ -250,11 +265,13 @@ function ListaDocumentos({
   arrastando,
   podeGerenciar,
   onRemover,
+  onAbrir,
 }: {
   itens: LinhaDocumentoOrg[];
   arrastando: boolean;
   podeGerenciar: boolean;
   onRemover: (doc: LinhaDocumentoOrg) => void;
+  onAbrir: (doc: LinhaDocumentoOrg) => void;
 }) {
   return (
     <div
@@ -270,6 +287,7 @@ function ListaDocumentos({
             doc={d}
             podeGerenciar={podeGerenciar}
             onRemover={() => onRemover(d)}
+            onAbrir={() => onAbrir(d)}
           />
         ))}
       </ul>
@@ -281,10 +299,12 @@ function LinhaDocumento({
   doc,
   podeGerenciar,
   onRemover,
+  onAbrir,
 }: {
   doc: LinhaDocumentoOrg;
   podeGerenciar: boolean;
   onRemover: () => void;
+  onAbrir: () => void;
 }) {
   const titulo = doc.nome.replace(/\.[^.]+$/, "") || doc.nome;
 
@@ -294,7 +314,12 @@ function LinhaDocumento({
         <DocumentTextIcon className="size-5 stroke-[1.5]" />
       </span>
 
-      <span className="min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={onAbrir}
+        disabled={doc.local || doc.status === "processando"}
+        className="min-w-0 flex-1 text-start disabled:cursor-default"
+      >
         <span className="flex items-center gap-2">
           <span
             className="dark:text-dark-100 truncate text-sm font-medium text-gray-800"
@@ -302,6 +327,11 @@ function LinhaDocumento({
           >
             {titulo}
           </span>
+          {doc.origemTipo === "copia_nota" && (
+            <Badge variant="soft" color="info" className="text-tiny shrink-0">
+              Cópia de nota
+            </Badge>
+          )}
           <Badge variant="soft" color="neutral" className="text-tiny shrink-0">
             {doc.tipo.toUpperCase()}
           </Badge>
@@ -311,9 +341,14 @@ function LinhaDocumento({
           title={doc.nome}
         >
           {doc.nome}
-          <span className="font-sans"> · Adicionado por {doc.adicionadoPorNome}</span>
+          <span className="font-sans">
+            {doc.origemTipo === "copia_nota"
+              ? ` · Publicado por ${doc.adicionadoPorNome}`
+              : ` · Adicionado por ${doc.adicionadoPorNome}`}
+            {doc.editadoEm ? " · editado" : ""}
+          </span>
         </span>
-      </span>
+      </button>
 
       <span className="shrink-0">
         <StatusDocumento doc={doc} />

@@ -1,12 +1,24 @@
 import { extname } from 'node:path';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { extrairTexto } from '@/ai/analise/extrair-texto';
 import type { VaultNotaHit } from '@/vault/vault.service';
+import type { AuthenticatedUser } from '@/auth/jwt.strategy';
+import {
+  CapacidadesOrgService,
+  type CapacidadesOrg,
+} from '@/compartilhamento/capacidades-org.service';
+import { AuditoriaService } from '@/auditoria/auditoria.service';
 
 export type StatusDocumentoOrg = 'processando' | 'disponivel' | 'erro';
 
-/** Linha da tabela do Repositório — sem o conteúdo, que só a IA lê. */
+/** Linha da tabela do Repositório — sem o conteúdo. */
 export interface DocumentoOrg {
   id: string;
   nome: string;
@@ -16,6 +28,10 @@ export interface DocumentoOrg {
   erro: string | null;
   adicionadoPorNome: string;
   criadoEm: Date;
+  /** `upload` ou `copia_nota` (cópia publicada de uma nota pessoal). */
+  origemTipo: string;
+  origemDonoNome: string | null;
+  editadoEm: Date | null;
 }
 
 const SELECT_LINHA = {
@@ -27,7 +43,13 @@ const SELECT_LINHA = {
   erro: true,
   adicionadoPorNome: true,
   criadoEm: true,
+  origemTipo: true,
+  origemDonoNome: true,
+  editadoEm: true,
 } as const;
+
+/** Tipos de arquivo cujo texto pode ser editado na plataforma. */
+const EDITAVEIS = new Set(['md', 'markdown', 'txt']);
 
 /**
  * Prefixo do `path` com que um documento da organização entra no contexto da
@@ -37,32 +59,86 @@ const SELECT_LINHA = {
 export const PREFIXO_PATH_ORG = 'repositorio:';
 
 /**
- * Repositório da organização: a base de conhecimento compartilhada.
+ * Repositório da organização: a base de conhecimento INSTITUCIONAL.
  *
- * TODO método é escopado por empresa (tenant, do JWT) **e** organização (header
- * `X-Organizacao-Id`). Sem organização, nada é lido nem gravado — cair no
- * escopo da empresa mostraria a uma organização os documentos de outra.
+ * Escopado por empresa (tenant, do JWT) **e** organização (header
+ * `X-Organizacao-Id`; `pessoal:<outro>` é barrado pelo interceptor global).
  *
- * Fonte separada do vault de propósito: os documentos daqui não aparecem na
- * lista pessoal nem no grafo pessoal. Eles só chegam à IA, via `search`.
+ * Quem pode o quê é decidido NO SERVIDOR (`CapacidadesOrgService`): ver
+ * (`documentos.visualizar`), usar como contexto da IA (`documentos.usar_ia`),
+ * enviar, editar e excluir. Ver não implica usar na IA. Este repositório não
+ * dá acesso a nada pessoal de ninguém.
  */
 @Injectable()
 export class RepositorioOrgService {
   private readonly logger = new Logger(RepositorioOrgService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly capacidades: CapacidadesOrgService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
+
+  /** Capacidades do usuário (para o controller e a interface). */
+  capacidadesDe(user: AuthenticatedUser): Promise<CapacidadesOrg> {
+    return this.capacidades.de(user);
+  }
+
+  private async exigir(
+    user: AuthenticatedUser,
+    cap: keyof CapacidadesOrg,
+    mensagem: string,
+  ): Promise<void> {
+    const c = await this.capacidades.de(user);
+    if (!c[cap]) throw new ForbiddenException(mensagem);
+  }
 
   async listar(
-    empresaId: string,
+    user: AuthenticatedUser,
     organizacaoId: string | null,
   ): Promise<DocumentoOrg[]> {
     if (!organizacaoId) return [];
+    await this.exigir(
+      user,
+      'visualizar',
+      'A sua role não permite visualizar os documentos da organização.',
+    );
     const linhas = await this.prisma.repositorioOrgDocumento.findMany({
-      where: { empresaId, organizacaoId },
+      where: { empresaId: user.empresaId, organizacaoId },
       orderBy: { criadoEm: 'desc' },
       select: SELECT_LINHA,
     });
     return linhas as DocumentoOrg[];
+  }
+
+  /** Conteúdo (texto) de um documento — para visualizar/editar. Auditado. */
+  async obter(
+    user: AuthenticatedUser,
+    organizacaoId: string,
+    id: string,
+  ): Promise<DocumentoOrg & { conteudo: string; editavel: boolean }> {
+    await this.exigir(
+      user,
+      'visualizar',
+      'A sua role não permite visualizar os documentos da organização.',
+    );
+    const doc = await this.prisma.repositorioOrgDocumento.findFirst({
+      where: { id, empresaId: user.empresaId, organizacaoId },
+      select: { ...SELECT_LINHA, conteudo: true },
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado.');
+    await this.auditoria.registrar({
+      empresaId: user.empresaId,
+      atorUsuarioId: user.id,
+      acao: 'conteudo.visualizado',
+      recursoTipo: 'documento_org',
+      recursoId: doc.id,
+      recursoTitulo: doc.nome,
+    });
+    return {
+      ...(doc as DocumentoOrg & { conteudo: string }),
+      editavel: EDITAVEIS.has(doc.tipo),
+    };
   }
 
   /**
@@ -71,16 +147,21 @@ export class RepositorioOrgService {
    * `erro` fica visível (com a causa) em vez de sumir.
    */
   async enviar(
-    empresaId: string,
+    user: AuthenticatedUser,
     organizacaoId: string,
-    usuarioId: string,
     arquivo: { originalname: string; buffer: Buffer; size: number },
   ): Promise<DocumentoOrg> {
+    await this.exigir(
+      user,
+      'enviar',
+      'A sua role não permite enviar documentos ao Repositório da organização.',
+    );
+    const empresaId = user.empresaId;
     const nome = nomeDoArquivo(arquivo.originalname);
     const tipo = extname(nome).replace('.', '').toLowerCase() || 'txt';
 
     const autor = await this.prisma.usuario.findUnique({
-      where: { id: usuarioId },
+      where: { id: user.id },
       select: { nome: true, email: true },
     });
 
@@ -91,7 +172,7 @@ export class RepositorioOrgService {
         nome,
         tipo,
         tamanho: arquivo.size,
-        adicionadoPorId: usuarioId,
+        adicionadoPorId: user.id,
         adicionadoPorNome: autor?.nome || autor?.email || 'Usuário',
       },
       select: { id: true },
@@ -115,32 +196,104 @@ export class RepositorioOrgService {
         : { status: 'disponivel', conteudo },
       select: SELECT_LINHA,
     });
+    await this.auditoria.registrar({
+      empresaId,
+      atorUsuarioId: user.id,
+      acao: 'repositorio_org.enviado',
+      recursoTipo: 'documento_org',
+      recursoId: criado.id,
+      recursoTitulo: nome,
+      alvoTipo: 'organizacao',
+      alvoId: organizacaoId,
+    });
+    return atualizado as DocumentoOrg;
+  }
+
+  /** Edita o texto de um documento de texto (md/txt). */
+  async editar(
+    user: AuthenticatedUser,
+    organizacaoId: string,
+    id: string,
+    conteudo: string,
+  ): Promise<DocumentoOrg> {
+    await this.exigir(
+      user,
+      'editar',
+      'A sua role não permite editar documentos da organização.',
+    );
+    const doc = await this.prisma.repositorioOrgDocumento.findFirst({
+      where: { id, empresaId: user.empresaId, organizacaoId },
+      select: { id: true, nome: true, tipo: true },
+    });
+    if (!doc) throw new NotFoundException('Documento não encontrado.');
+    if (!EDITAVEIS.has(doc.tipo)) {
+      throw new BadRequestException(
+        'Só documentos de texto (.md, .txt) podem ser editados na plataforma.',
+      );
+    }
+    const atualizado = await this.prisma.repositorioOrgDocumento.update({
+      where: { id: doc.id },
+      data: {
+        conteudo,
+        tamanho: Buffer.byteLength(conteudo, 'utf8'),
+        status: 'disponivel',
+        erro: null,
+        editadoPorId: user.id,
+        editadoEm: new Date(),
+      },
+      select: SELECT_LINHA,
+    });
+    await this.auditoria.registrar({
+      empresaId: user.empresaId,
+      atorUsuarioId: user.id,
+      acao: 'repositorio_org.editado',
+      recursoTipo: 'documento_org',
+      recursoId: doc.id,
+      recursoTitulo: doc.nome,
+    });
     return atualizado as DocumentoOrg;
   }
 
   async remover(
-    empresaId: string,
+    user: AuthenticatedUser,
     organizacaoId: string,
     id: string,
   ): Promise<void> {
-    const { count } = await this.prisma.repositorioOrgDocumento.deleteMany({
-      where: { id, empresaId, organizacaoId },
+    await this.exigir(
+      user,
+      'excluir',
+      'A sua role não permite excluir documentos da organização.',
+    );
+    const doc = await this.prisma.repositorioOrgDocumento.findFirst({
+      where: { id, empresaId: user.empresaId, organizacaoId },
+      select: { id: true, nome: true },
     });
-    if (!count) throw new NotFoundException('Documento não encontrado.');
+    if (!doc) throw new NotFoundException('Documento não encontrado.');
+    await this.prisma.repositorioOrgDocumento.delete({ where: { id: doc.id } });
+    await this.auditoria.registrar({
+      empresaId: user.empresaId,
+      atorUsuarioId: user.id,
+      acao: 'repositorio_org.excluido',
+      recursoTipo: 'documento_org',
+      recursoId: doc.id,
+      recursoTitulo: doc.nome,
+    });
   }
 
   /**
    * Os documentos disponíveis mais recentes da organização, com conteúdo —
-   * matéria-prima da geração manual de insights (tela de Insights).
+   * matéria-prima da geração manual de insights. Exige `documentos.usar_ia`;
+   * sem ela devolve vazio (a IA simplesmente não os vê).
    */
   async recentes(
-    empresaId: string,
+    user: AuthenticatedUser,
     organizacaoId: string | null,
     k = 8,
   ): Promise<VaultNotaHit[]> {
     if (!organizacaoId) return [];
+    if (!(await this.capacidades.de(user)).usarIa) return [];
     const docs = await this.prisma.repositorioOrgDocumento.findMany({
-      where: { empresaId, organizacaoId, status: 'disponivel' },
+      where: { empresaId: user.empresaId, organizacaoId, status: 'disponivel' },
       orderBy: { criadoEm: 'desc' },
       take: k,
       select: { nome: true, conteudo: true },
@@ -154,27 +307,28 @@ export class RepositorioOrgService {
 
   /**
    * Documentos mais relevantes à pergunta, no mesmo formato das notas do vault
-   * — para entrarem no MESMO bloco de contexto. Mesma busca full-text em
-   * português de `VaultService.search`, só sobre documentos `disponivel`.
+   * — para entrarem no MESMO bloco de contexto. Exige `documentos.usar_ia`
+   * (visualizar não basta); sem ela, devolve vazio.
    *
    * Sem casamento, devolve vazio (não há fallback de "mais recentes"): quem
    * chama já recebe o fallback do vault, e documento da organização fora de
    * assunto só competiria com ele pelo orçamento do prompt.
    */
   async search(
-    empresaId: string,
+    user: AuthenticatedUser,
     organizacaoId: string | null,
     query: string,
     k = 4,
   ): Promise<VaultNotaHit[]> {
     const q = query.trim();
     if (!organizacaoId || !q) return [];
+    if (!(await this.capacidades.de(user)).usarIa) return [];
     const rows = await this.prisma.$queryRaw<
       { nome: string; conteudo: string }[]
     >`
       SELECT "nome", "conteudo"
       FROM "repositorio_org_documentos"
-      WHERE "empresaId" = ${empresaId}
+      WHERE "empresaId" = ${user.empresaId}
         AND "organizacaoId" = ${organizacaoId}
         AND "status" = 'disponivel'
         AND to_tsvector('portuguese', coalesce("nome", '') || ' ' || coalesce("conteudo", ''))

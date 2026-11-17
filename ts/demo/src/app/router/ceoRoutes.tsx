@@ -14,6 +14,7 @@ import AgentesCatalogo from "@/app/pages/ceo/AgentesCatalogo";
 import Documentos from "@/app/pages/ceo/Documentos";
 import Email from "@/app/pages/ceo/Email";
 import Slack from "@/app/pages/ceo/Slack";
+import Drive from "@/app/pages/ceo/Drive";
 import Ia from "@/app/pages/ceo/Ia";
 import Apresentacao from "@/app/pages/ceo/Apresentacao";
 import Planilha from "@/app/pages/ceo/Planilha";
@@ -74,6 +75,7 @@ const pageBySlug: Record<string, RouteObject["Component"]> = {
   documentos: Documentos,
   email: Email,
   slack: Slack,
+  drive: Drive,
   "memoria-grafo": MemoriaGrafo,
   ia: Ia,
   notas: Notas,

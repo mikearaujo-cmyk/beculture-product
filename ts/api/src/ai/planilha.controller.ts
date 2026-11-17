@@ -1,3 +1,4 @@
+import { blocoDeTerceiro } from './prompt/framework';
 import {
   BadRequestException,
   Body,
@@ -259,13 +260,13 @@ export class PlanilhaController {
       try {
         // O Repositório da organização entra junto, na frente — a busca dele
         // já não tem fallback, então só volta documento que casou.
-        const [daOrganizacao, doVault] = await Promise.all([
-          this.repositorioOrg.search(
-            user.empresaId,
-            organizacaoId,
-            consulta,
-            MAX_NOTAS,
-          ),
+        // Notas compartilhadas por outros membros entram só com concessão de
+        // uso pela IA válida agora (mesma regra do /ai/prompt).
+        const [daOrganizacao, compartilhadas, doVault] = await Promise.all([
+          this.repositorioOrg.search(user, organizacaoId, consulta, MAX_NOTAS),
+          this.vault
+            .searchCompartilhadas(user.empresaId, user.id, consulta, MAX_NOTAS)
+            .catch(() => []),
           this.vault.search(
             user.empresaId,
             repositorioId,
@@ -274,11 +275,20 @@ export class PlanilhaController {
             { semFallback: true },
           ),
         ]);
-        const hits = [...daOrganizacao, ...doVault].slice(0, MAX_NOTAS);
+        const hits = [...daOrganizacao, ...compartilhadas, ...doVault].slice(
+          0,
+          MAX_NOTAS,
+        );
         notas = hits.map((h) => ({ path: h.path, titulo: h.titulo }));
         for (const h of hits) {
           blocos.push(
-            `### ${h.titulo} (Repositório)\n${h.conteudo.slice(0, MAX_POR_NOTA)}`,
+            h.compartilhadoPor
+              ? blocoDeTerceiro(
+                  h.titulo,
+                  h.compartilhadoPor,
+                  h.conteudo.slice(0, MAX_POR_NOTA),
+                )
+              : `### ${h.titulo} (Repositório)\n${h.conteudo.slice(0, MAX_POR_NOTA)}`,
           );
         }
       } catch (err) {

@@ -22,6 +22,10 @@ export interface DocumentoOrg {
   adicionadoPorNome: string;
   /** ISO. */
   criadoEm: string;
+  /** `upload` ou `copia_nota` (cópia publicada de uma nota pessoal). */
+  origemTipo?: string;
+  origemDonoNome?: string | null;
+  editadoEm?: string | null;
 }
 
 function comDono(dono: string) {
@@ -66,4 +70,55 @@ export async function removerDocumentoOrg(
     `/repositorio-org/documentos/${encodeURIComponent(id)}`,
     comDono(dono),
   );
+}
+
+/** Campos de origem/edição (opcionais: linhas locais de envio não os têm). */
+export interface DocumentoOrgOrigem {
+  /** `upload` ou `copia_nota` (cópia publicada de uma nota pessoal). */
+  origemTipo?: string;
+  origemDonoNome?: string | null;
+  editadoEm?: string | null;
+}
+
+/** O que o usuário pode fazer no Repositório da organização (conferido no servidor). */
+export interface CapacidadesRepositorioOrg {
+  visualizar: boolean;
+  usarIa: boolean;
+  enviar: boolean;
+  editar: boolean;
+  excluir: boolean;
+}
+
+/** GET — capacidades do usuário logado. */
+export async function capacidadesRepositorioOrg(): Promise<CapacidadesRepositorioOrg> {
+  const { data } = await axios.get<{ capacidades: CapacidadesRepositorioOrg }>(
+    "/repositorio-org/documentos/capacidades",
+  );
+  return data.capacidades;
+}
+
+/** GET — documento com o texto (auditado no servidor). */
+export async function obterDocumentoOrg(
+  dono: string,
+  id: string,
+): Promise<DocumentoOrg & DocumentoOrgOrigem & { conteudo: string; editavel: boolean }> {
+  const { data } = await axios.get(
+    `/repositorio-org/documentos/${encodeURIComponent(id)}`,
+    comDono(dono),
+  );
+  return data;
+}
+
+/** PATCH — edita o texto de um documento .md/.txt. */
+export async function editarDocumentoOrg(
+  dono: string,
+  id: string,
+  conteudo: string,
+): Promise<DocumentoOrg> {
+  const { data } = await axios.patch<{ documento: DocumentoOrg }>(
+    `/repositorio-org/documentos/${encodeURIComponent(id)}`,
+    { conteudo },
+    comDono(dono),
+  );
+  return data.documento;
 }

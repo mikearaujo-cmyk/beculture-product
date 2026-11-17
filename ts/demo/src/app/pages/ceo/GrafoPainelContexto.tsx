@@ -26,7 +26,9 @@ import {
   SpeakerWaveIcon,
   UserGroupIcon,
   UserIcon,
+  KeyIcon,
   PlusIcon,
+  ShareIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 
@@ -300,6 +302,12 @@ interface Props {
   onDesrelacionar: (alvo: RelacaoVizinha) => Promise<void>;
   /** `false` quando o Repositório está como cópia somente leitura. */
   podeEscrever: boolean;
+  /** Concessões ativas da tag selecionada (0 = privada). */
+  compartilhamentosDaSelecao?: number;
+  /** Compartilhar a tag (agrupamento de arquivos) selecionada. */
+  onCompartilhar?: (s: Extract<Selecao, { tipo: "entidade" }>) => void;
+  /** Ver e gerenciar quem tem acesso à tag selecionada. */
+  onGerenciarAcesso?: (s: Extract<Selecao, { tipo: "entidade" }>) => void;
 }
 
 export function GrafoPainelContexto({
@@ -312,6 +320,9 @@ export function GrafoPainelContexto({
   onRelacionar,
   onDesrelacionar,
   podeEscrever,
+  compartilhamentosDaSelecao = 0,
+  onCompartilhar,
+  onGerenciarAcesso,
 }: Props) {
   // Guarda o id do nó para o qual o seletor foi aberto, em vez de um booleano:
   // ao trocar de nó ele deixa de bater e o seletor some sozinho, sem um effect
@@ -401,6 +412,40 @@ export function GrafoPainelContexto({
               {resumirPorTipo(conteudos)}
             </p>
           )}
+          {/* Compartilhar a TAG: o agrupamento inteiro de arquivos. */}
+          {selecao.tipo === "entidade" &&
+            selecao.conteudos.length > 0 &&
+            onCompartilhar && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {compartilhamentosDaSelecao > 0 && (
+                  <Badge
+                    variant="soft"
+                    color="info"
+                    className="text-tiny shrink-0"
+                  >
+                    Compartilhada
+                  </Badge>
+                )}
+                <Button
+                  variant="outlined"
+                  className="h-7 gap-1 px-2 text-xs"
+                  onClick={() => onCompartilhar(selecao)}
+                >
+                  <ShareIcon className="size-3.5" />
+                  Compartilhar tag
+                </Button>
+                {compartilhamentosDaSelecao > 0 && onGerenciarAcesso && (
+                  <Button
+                    variant="flat"
+                    className="h-7 gap-1 px-2 text-xs"
+                    onClick={() => onGerenciarAcesso(selecao)}
+                  >
+                    <KeyIcon className="size-3.5" />
+                    Quem tem acesso
+                  </Button>
+                )}
+              </div>
+            )}
         </div>
         <Button
           isIcon

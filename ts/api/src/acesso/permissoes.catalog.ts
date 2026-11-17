@@ -121,6 +121,43 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
         rotulo: 'Excluir documentos',
         requer: 'documentos.visualizar',
       },
+      {
+        // Ver um documento NÃO libera a IA a usá-lo: são capacidades
+        // independentes, de propósito.
+        code: 'documentos.usar_ia',
+        rotulo: 'Usar documentos da organização como contexto da IA',
+        requer: 'documentos.visualizar',
+      },
+      {
+        code: 'documentos.editar',
+        rotulo: 'Editar documentos da organização',
+        requer: 'documentos.visualizar',
+      },
+    ],
+  },
+  {
+    // Governança do compartilhamento. Nenhuma destas permissões dá acesso ao
+    // CONTEÚDO pessoal de ninguém: administram regras e metadados.
+    id: 'compartilhamento',
+    titulo: 'Compartilhamento',
+    permissoes: [
+      {
+        code: 'compartilhamento.politicas',
+        rotulo: 'Definir políticas de compartilhamento',
+      },
+    ],
+  },
+  {
+    // `consultar`, e não `visualizar`, de propósito: a role Viewer é montada
+    // com todo código terminado em `.visualizar`, e a trilha de auditoria não
+    // deve entrar nela por acidente.
+    id: 'auditoria',
+    titulo: 'Auditoria',
+    permissoes: [
+      {
+        code: 'auditoria.consultar',
+        rotulo: 'Consultar registros de auditoria (só metadados)',
+      },
     ],
   },
   {

@@ -18,6 +18,7 @@ export type TemporarilyDisabledFeature =
   | "notes"
   | "email"
   | "slack"
+  | "drive"
   | "calendar"
   | "connectors"
   | "notifications"
@@ -76,17 +77,16 @@ export const TEMPORARILY_DISABLED: Record<TemporarilyDisabledFeature, boolean> =
     // continuam salvos; com `false` o grupo volta como estava. Ponto de corte
     // único, em Sidebar/Menu/index.tsx.
     sidebarAgents: true,
-    // Grupos DESABILITADO de novo: o bloco "GRUPOS" da sidebar fica visível,
-    // opaco e sem clique — o "+" não cria, os itens não navegam nem
-    // renomeiam/excluem, e o "ver mais" some. Ponto de corte único, em
-    // AgrupamentosGroup.tsx.
+    // Grupos REATIVADO: o bloco "GRUPOS" da sidebar volta a funcionar — o "+"
+    // cria, os itens navegam e renomeiam/excluem, e o "ver mais" reaparece.
+    // Com `true` ele volta a ficar visível, opaco e sem clique. Ponto de corte
+    // único, em AgrupamentosGroup.tsx.
     //
-    // A rota /:produto/agrupamentos/:id continua NÃO bloqueada — quem tiver o
-    // link salvo ainda abre o grupo. É o mesmo comportamento das outras flags de
-    // navegação (E-mail, Slack, Conectores): elas decidem o que é clicável, não
-    // o que existe. Se um dia o corte precisar valer também para links diretos,
-    // o lugar é uma guarda na rota, em ceoRoutes.tsx.
-    groups: true,
+    // A rota /:produto/agrupamentos/:id nunca esteve bloqueada: as flags de
+    // navegação (E-mail, Slack, Conectores) decidem o que é clicável, não o que
+    // existe. Se um dia o corte precisar valer também para links diretos, o
+    // lugar é uma guarda na rota, em ceoRoutes.tsx.
+    groups: false,
     history: false,
 
     // Insights REATIVADO: o item "Insights" do PAINEL volta a ficar clicável na
@@ -134,6 +134,8 @@ export const TEMPORARILY_DISABLED: Record<TemporarilyDisabledFeature, boolean> =
     notes: true,
     email: false,
     slack: false,
+    // Google Drive: navegar e salvar arquivos no Repositório (pages/ceo/Drive.tsx).
+    drive: false,
     calendar: true,
     // Conectores REATIVADO. O ponto de entrada agora é Configurações de
     // usuário (menu de perfil) › Conectores; /:produto/conectores redireciona
@@ -373,6 +375,7 @@ export function isNavItemTemporarilyDisabled(
     notas: "notes",
     email: "email",
     slack: "slack",
+    drive: "drive",
     agenda: "calendar",
     "upload-audio": "memoryUploadAudio",
     "upload-transcricao": "memoryUploadTranscript",

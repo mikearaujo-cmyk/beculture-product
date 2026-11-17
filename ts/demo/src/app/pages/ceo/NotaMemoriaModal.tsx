@@ -13,7 +13,9 @@ import {
   DocumentTextIcon,
   EyeIcon,
   PencilSquareIcon,
+  ShareIcon,
 } from "@heroicons/react/24/outline";
+import { CompartilharModal } from "./compartilhamento/CompartilharModal";
 import clsx from "clsx";
 import { toast } from "sonner";
 
@@ -67,6 +69,8 @@ interface Props {
   tags?: string[];
   /** Avisa a tela do grafo que o arquivo mudou (para atualizar o rótulo do nó). */
   onSalvo?: (conteudo: string) => void;
+  /** Chamado depois de compartilhar a nota (para a tela atualizar o selo). */
+  onCompartilhado?: () => void;
 }
 
 const MOTIVO: Record<VaultFalha, string> = {
@@ -113,6 +117,7 @@ export function NotaMemoriaModal({
   titulo,
   tags,
   onSalvo,
+  onCompartilhado,
 }: Props) {
   // `salvo` guarda o conteúdo em disco do arquivo aberto; comparado com o do
   // editor, dá o "não salvo". Ambos carregam o path para que o estado da nota
@@ -125,6 +130,7 @@ export function NotaMemoriaModal({
   );
   const [conteudo, setConteudo] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [compartilhando, setCompartilhando] = useState(false);
   const [modo, setModo] = useState<"editar" | "ler">("editar");
 
   // Derivado, e não um `useState("ler")`: os pontos que inicializam `modo`
@@ -284,21 +290,22 @@ export function NotaMemoriaModal({
           <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/40" />
         </TransitionChild>
 
-        {/* Sem scroller externo: quem rola é o corpo da nota (h-[55vh] abaixo),
-            senão os dois competem e o rodapé fica inalcançável no celular. */}
-        <div className="fixed inset-0 flex items-start justify-center sm:p-6">
+        {/* Drawer lateral à direita, como o painel de uma tag no grafo. Sem
+            scroller externo: quem rola é o corpo da nota, senão os dois
+            competem e o rodapé fica inalcançável no celular. */}
+        <div className="fixed inset-0 flex justify-end sm:p-2">
           <TransitionChild
-            enter="ease-out duration-200"
-            enterFrom="opacity-0 translate-y-4"
-            enterTo="opacity-100 translate-y-0"
-            leave="ease-in duration-150"
-            leaveFrom="opacity-100 translate-y-0"
-            leaveTo="opacity-0 translate-y-4"
+            enter="ease-out transform-gpu transition-transform duration-200"
+            enterFrom="translate-x-full"
+            enterTo="translate-x-0"
+            leave="ease-in transform-gpu transition-transform duration-200"
+            leaveFrom="translate-x-0"
+            leaveTo="translate-x-full"
           >
             <DialogPanel
               onKeyDown={onKeyDown}
-              // Celular: folha de tela cheia; `sm:` reintroduz o card.
-              className="dark:bg-dark-700 flex h-[100dvh] max-h-[100dvh] w-full flex-col bg-white shadow-xl sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:max-w-3xl sm:rounded-xl"
+              // Celular: tela cheia; `sm:` vira o drawer arredondado.
+              className="dark:bg-dark-700 flex h-[100dvh] w-screen flex-col bg-white shadow-xl sm:h-[calc(100dvh-1rem)] sm:w-[36rem] sm:rounded-xl"
             >
               <div className="dark:border-dark-600 flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-5 py-3.5">
                 <div className="min-w-0">
@@ -327,7 +334,7 @@ export function NotaMemoriaModal({
                 </Button>
               </div>
 
-              <div className="flex min-h-[50vh] flex-col px-5 py-4">
+              <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
                 {carregando && (
                   <div className="grid grow place-items-center">
                     <div className="dark:text-dark-200 flex items-center gap-3 text-sm text-gray-600">
@@ -396,10 +403,10 @@ export function NotaMemoriaModal({
                         value={conteudo}
                         onChange={(e) => setConteudo(e.target.value)}
                         spellCheck={false}
-                        className="dark:border-dark-500 dark:bg-dark-800 dark:text-dark-100 focus:border-primary-500 text-xs-plus h-[55vh] w-full resize-none rounded-lg border border-gray-200 bg-white p-3 font-mono leading-relaxed text-gray-800 outline-hidden"
+                        className="dark:border-dark-500 dark:bg-dark-800 dark:text-dark-100 focus:border-primary-500 text-xs-plus min-h-0 w-full flex-1 resize-none rounded-lg border border-gray-200 bg-white p-3 font-mono leading-relaxed text-gray-800 outline-hidden"
                       />
                     ) : (
-                      <div className="dark:border-dark-600 dark:bg-dark-800 h-[55vh] overflow-y-auto rounded-lg border border-gray-200 bg-white px-4 py-2">
+                      <div className="dark:border-dark-600 dark:bg-dark-800 min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white px-4 py-2">
                         <MarkdownView>{conteudo}</MarkdownView>
                       </div>
                     )}
@@ -407,19 +414,19 @@ export function NotaMemoriaModal({
                 )}
               </div>
 
-              <div className="dark:border-dark-600 flex shrink-0 items-center gap-3 border-t border-gray-200 px-5 py-3">
+              <div className="dark:border-dark-600 flex shrink-0 flex-wrap items-center gap-3 border-t border-gray-200 py-3 pl-5 pr-5 sm:pr-24">
                 {/* Motivo do bloqueio à esquerda, na mesma linha do rodapé:
                     tooltip em botão desabilitado não abre em vários navegadores
                     nem existe no touch. */}
                 {mostrarExportar && !podeExportar && (
-                  <span className="dark:text-dark-300 text-tiny min-w-0 flex-1 text-gray-400">
+                  <span className="dark:text-dark-300 text-tiny w-full text-gray-400">
                     {motivoBloqueio}
                   </span>
                 )}
                 {/* Exportar o arquivo-fonte do upload (não o resumo da IA).
                     Fica no rodapé, à esquerda de "Fechar" — `ml-auto` mantém o
                     grupo à direita mesmo quando o motivo acima não renderiza. */}
-                <div className="ml-auto flex shrink-0 items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                   {mostrarExportar && (
                     <Button
                       onClick={exportarOriginal}
@@ -438,7 +445,18 @@ export function NotaMemoriaModal({
                       ) : (
                         <ArrowDownTrayIcon className="size-4" />
                       )}
-                      Exportar arquivo original
+                      Exportar original
+                    </Button>
+                  )}
+                  {path && !erro && (
+                    <Button
+                      variant="outlined"
+                      className="gap-1.5"
+                      onClick={() => setCompartilhando(true)}
+                      disabled={carregando}
+                    >
+                      <ShareIcon className="size-4" />
+                      Compartilhar
                     </Button>
                   )}
                   <Button
@@ -464,6 +482,17 @@ export function NotaMemoriaModal({
             </DialogPanel>
           </TransitionChild>
         </div>
+        {/* Aninhado no Dialog da nota: o Headless UI trata o modal filho
+            como a camada de cima, sem fechar a nota por "clique fora". */}
+        <CompartilharModal
+          alvo={
+            compartilhando && path
+              ? { path, titulo: titulo ?? path.split("/").pop() ?? path }
+              : null
+          }
+          close={() => setCompartilhando(false)}
+          onConcluido={onCompartilhado}
+        />
       </Dialog>
     </Transition>
   );

@@ -36,6 +36,11 @@ export interface ConteudoNaMemoria {
   data?: string;
   tags?: string[];
   anexos?: AnexoMemoria[];
+  /**
+   * Arquivo de onde o conteúdo saiu (ex.: o PDF do Google Drive). Fica ao lado
+   * da nota e é referenciado no frontmatter (`arquivo-original:`).
+   */
+  original?: AnexoMemoria;
 }
 
 /**
@@ -58,6 +63,7 @@ export async function salvarConteudoNaMemoria(
     titulo: opts.titulo,
     tags: opts.tags,
     anexos: opts.anexos,
+    original: opts.original,
     conteudo: [cabecalho, opts.conteudo.trim()].filter(Boolean).join("\n\n"),
   });
 

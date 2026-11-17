@@ -35,6 +35,7 @@ import { CurrentUser } from '@/common/current-user.decorator';
 import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
 import { OrganizacaoAtual } from '@/common/organizacao-atual.decorator';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
+import { RepositorioAcessoService } from '@/repositorio-acesso/repositorio-acesso.service';
 
 interface UploadedFileLike {
   originalname: string;
@@ -158,6 +159,7 @@ export class PromptController {
     private readonly vault: VaultService,
     private readonly repositorioOrg: RepositorioOrgService,
     private readonly conversas: ConversasService,
+    private readonly repoAcesso: RepositorioAcessoService,
   ) {}
 
   /**
@@ -195,8 +197,14 @@ export class PromptController {
     // O corpo já mandava o repositório (usado para gravar a conversa); o header
     // é a fonte nova, comum a todos os endpoints. Preferimos o corpo quando ele
     // vem, para não mudar o comportamento de quem já o envia.
+    // O do corpo também é conferido: o interceptor global só vê o header (o
+    // corpo multipart é lido depois, pelo interceptor da rota).
     const repositorioId =
-      (body.repositorioId || '').trim() || repositorioDoHeader || undefined;
+      (await this.repoAcesso.verificar(
+        user.empresaId,
+        user.id,
+        (body.repositorioId || '').trim() || repositorioDoHeader,
+      )) ?? undefined;
     const modoPedido = modo;
 
     // Agente do turno: a persona vai NA FRENTE do system prompt do modo; as
@@ -315,9 +323,14 @@ export class PromptController {
     let titulosNotas: string[] = [];
     try {
       // Busca uma margem além do teto para o orçamento poder escolher.
-      const [daOrganizacao, doVault] = await Promise.all([
+      // Três fontes, cada uma com a SUA autorização:
+      //   • organização: só com `documentos.usar_ia` (RepositorioOrgService);
+      //   • vault próprio: o repositório já foi verificado como do usuário;
+      //   • compartilhadas: só notas alheias com concessão de uso pela IA
+      //     válida AGORA (AcessoConteudoService, sem cache).
+      const [daOrganizacao, doVault, compartilhadas] = await Promise.all([
         this.repositorioOrg
-          .search(user.empresaId, organizacaoId, texto)
+          .search(user, organizacaoId, texto)
           .catch((err: unknown) => {
             this.logger.warn(
               `Falha ao buscar no Repositório da organização: ${String(err)}`,
@@ -330,8 +343,16 @@ export class PromptController {
           texto,
           MEMORIA_MAX_NOTAS + 2,
         ),
+        this.vault
+          .searchCompartilhadas(user.empresaId, user.id, texto)
+          .catch((err: unknown) => {
+            this.logger.warn(
+              `Falha ao buscar notas compartilhadas: ${String(err)}`,
+            );
+            return [];
+          }),
       ]);
-      const hits = [...daOrganizacao, ...doVault];
+      const hits = [...daOrganizacao, ...compartilhadas, ...doVault];
       const { bloco, titulos } = montarBlocoMemoria(hits, texto);
       notasBloco = bloco;
       titulosNotas = titulos;

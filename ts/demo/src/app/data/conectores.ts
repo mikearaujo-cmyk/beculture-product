@@ -101,7 +101,7 @@ const connectorCatalog: Connector[] = [
 
   // Produtividade & Projetos
   { id: "google-workspace", rank: 3, name: "Google Workspace", category: "produtividade", objective: "Produtividade e colaboração", permissions: ["Login SSO", "Acessar agenda", "Criar eventos", "Ler diretório", "Acessar Drive"], brand: "#1a73e8", initials: "G", connectedByDefault: true },
-  { id: "google-drive", rank: 57, name: "Google Drive", category: "produtividade", objective: "Arquivos e documentos", permissions: ["Listar arquivos", "Ler arquivos", "Enviar arquivos", "Acessar pastas compartilhadas"], brand: "#1fa463", initials: "GD", isNew: true },
+  { id: "google-drive", rank: 57, name: "Google Drive", category: "produtividade", objective: "Arquivos e documentos", permissions: ["Listar arquivos", "Ler arquivos", "Acessar pastas compartilhadas", "Salvar no Repositório"], brand: "#1fa463", initials: "GD", isNew: true, oauth: true },
   { id: "onedrive", rank: 58, name: "OneDrive", category: "produtividade", objective: "Arquivos corporativos (Microsoft 365)", permissions: ["Listar arquivos", "Ler arquivos", "Enviar arquivos", "Acessar bibliotecas do SharePoint"], brand: "#0078d4", initials: "OD", isNew: true },
   { id: "clickup", rank: 25, name: "ClickUp", category: "produtividade", objective: "Produtividade", permissions: ["Criar tarefas", "Atualizar status", "Ler projetos"], brand: "#7b68ee", initials: "CU" },
   { id: "jira", rank: 26, name: "Jira", category: "produtividade", objective: "Gestão ágil", permissions: ["Criar issues", "Acessar backlog", "Sincronizar sprint"], brand: "#0052cc", initials: "J" },

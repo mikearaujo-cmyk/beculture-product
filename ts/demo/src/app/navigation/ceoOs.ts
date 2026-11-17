@@ -157,6 +157,14 @@ const behumanHome = (base: string): NavigationTree => ({
       icon: "ceo.slack",
     },
     {
+      id: `${base}.drive`,
+      type: "item",
+      path: `/${base}/drive`,
+      title: "Google Drive",
+      transKey: k("drive"),
+      icon: "ceo.drive",
+    },
+    {
       id: `${base}.agenda`,
       type: "item",
       path: `/${base}/agenda`,
@@ -485,6 +493,7 @@ export const systemAreas: SystemArea[] = [
   { slug: "feed", title: "Feed", transKey: k("feed"), icon: "ceo.feed" },
   { slug: "email", title: "Email", transKey: k("email"), icon: "ceo.email" },
   { slug: "slack", title: "Slack", transKey: k("slack"), icon: "ceo.slack" },
+  { slug: "drive", title: "Google Drive", transKey: k("drive"), icon: "ceo.drive" },
   { slug: "agenda", title: "Agenda", transKey: k("calendar"), icon: "ceo.agenda" },
   { slug: "crm", title: "CRM", transKey: k("crm"), icon: "ceo.crm" },
   { slug: "whatsapp", title: "WhatsApp", transKey: k("whatsapp"), icon: "ceo.whatsapp" },

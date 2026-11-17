@@ -11,7 +11,7 @@ import { CryptoService } from '@/ai/crypto';
 import { OauthStateService } from './oauth-state.service';
 
 /** Família do conector — cada controller só aceita os provedores da sua. */
-export type ProviderKind = 'email' | 'agenda';
+export type ProviderKind = 'email' | 'agenda' | 'arquivos';
 
 /**
  * Provedor OAuth suportado. O `id` é o mesmo do catálogo de conectores,
@@ -145,6 +145,29 @@ const PROVIDERS: OauthProvider[] = [
     extraAuthorizeParams: GOOGLE_AUTHORIZE_PARAMS,
     defaultRedirectUrl:
       'http://localhost:3001/conectores/agenda/google-calendar/callback',
+    fetchAccount: fetchGoogleAccount,
+  },
+  {
+    id: 'google-drive',
+    label: 'Google Drive',
+    kind: 'arquivos',
+    // Mesmo app GOOGLE_* do Gmail e da agenda; só o callback e os escopos
+    // mudam (o redirect precisa estar registrado no Google Cloud, com a
+    // Drive API ativada no projeto).
+    envPrefix: 'GOOGLE',
+    redirectEnv: 'GOOGLE_DRIVE_REDIRECT_URL',
+    authorizeUrl: () => 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: () => 'https://oauth2.googleapis.com/token',
+    scopes: [
+      'openid',
+      'email',
+      // Leitura de todo o Drive (pastas, arquivos e exportação dos nativos
+      // do Google): o usuário navega e escolhe o que salvar no Repositório.
+      'https://www.googleapis.com/auth/drive.readonly',
+    ].join(' '),
+    extraAuthorizeParams: GOOGLE_AUTHORIZE_PARAMS,
+    defaultRedirectUrl:
+      'http://localhost:3001/conectores/arquivos/google-drive/callback',
     fetchAccount: fetchGoogleAccount,
   },
 ];

@@ -16,7 +16,9 @@ import {
   EnvelopeIcon,
   FilmIcon,
   FolderIcon,
+  KeyIcon,
   MagnifyingGlassIcon,
+  ShareIcon,
   MicrophoneIcon,
   PhotoIcon,
   PresentationChartBarIcon,
@@ -34,6 +36,20 @@ import { getCurrentProduct } from "@/app/navigation/ceoOs";
 import { useRepositorioAtivo } from "@/app/pages/prototypes/contas/model/context";
 import { syncVault } from "@/services/api/vault";
 import { NotaMemoriaModal } from "./NotaMemoriaModal";
+import {
+  CompartilharModal,
+  type AlvoCompartilhamento,
+} from "./compartilhamento/CompartilharModal";
+import { GerenciarAcessoModal } from "./compartilhamento/GerenciarAcessoModal";
+import { NotaRecebidaModal } from "./compartilhamento/NotaRecebidaModal";
+import { ListaRecebidos } from "./compartilhamento/ListaRecebidos";
+import { AbasRepositorio } from "./compartilhamento/AbasRepositorio";
+import { sincronizarTagsCompartilhadas } from "./compartilhamento/sincronizarTags";
+import {
+  concedidosApi,
+  recebidosApi,
+  type Recebido,
+} from "@/services/api/compartilhamentos";
 import { RepositorioViewSelect } from "./RepositorioViewSelect";
 import {
   escolherPastaContexto,
@@ -107,6 +123,46 @@ export default function MemoriaLista() {
     null,
   );
 
+  // Compartilhamento. "Meus" = a pasta local; "Compartilhados comigo" = notas
+  // de outras pessoas que o servidor autoriza AGORA (só leitura).
+  const [aba, setAba] = useState<"meus" | "recebidos">("meus");
+  const [compartilhar, setCompartilhar] =
+    useState<AlvoCompartilhamento | null>(null);
+  const [gerenciar, setGerenciar] = useState<AlvoCompartilhamento | null>(
+    null,
+  );
+  const [acessosPorPath, setAcessosPorPath] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const [recebidos, setRecebidos] = useState<Recebido[] | null>(null);
+  const [recebido, setRecebido] = useState<Recebido | null>(null);
+
+  const recarregarConcedidos = useCallback(() => {
+    concedidosApi()
+      .then((lista) => {
+        const m = new Map<string, number>();
+        for (const c of lista) {
+          if (c.path) m.set(c.path, (m.get(c.path) ?? 0) + 1);
+        }
+        setAcessosPorPath(m);
+      })
+      .catch(() => setAcessosPorPath(new Map()));
+  }, []);
+
+  const recarregarRecebidos = useCallback(() => {
+    recebidosApi()
+      .then(setRecebidos)
+      .catch(() => setRecebidos([]));
+  }, []);
+
+  useEffect(() => {
+    recarregarConcedidos();
+  }, [recarregarConcedidos, repositorioId]);
+
+  useEffect(() => {
+    if (aba === "recebidos") recarregarRecebidos();
+  }, [aba, recarregarRecebidos]);
+
   // Indexa as notas na IA (mesmo /ai/vault do grafo). Só roda quando o usuário
   // escolhe a pasta ou clica em Sincronizar: abrir a lista para consultar não
   // precisa reenviar o vault inteiro.
@@ -117,6 +173,8 @@ export default function MemoriaLista() {
       toast.success("Repositório sincronizado", {
         description: `${r.total} notas disponíveis para a IA.`,
       });
+      // Tags compartilhadas "em sincronia" acompanham o vault de agora.
+      void sincronizarTagsCompartilhadas(arquivos).catch(() => {});
     } catch {
       toast.error("Falha ao sincronizar o Repositório com a IA.", {
         description:
@@ -254,8 +312,17 @@ export default function MemoriaLista() {
           </div>
         </div>
 
+        <AbasRepositorio aba={aba} onChange={setAba} />
+
+        {aba === "recebidos" && (
+          <ListaRecebidos
+            recebidos={recebidos}
+            onAbrir={setRecebido}
+          />
+        )}
+
         {/* Sem pasta escolhida (ou permissão revogada) */}
-        {semPasta && !lendo && (
+        {aba === "meus" && semPasta && !lendo && (
           <div className="dark:border-dark-600 mt-6 grid place-items-center rounded-2xl border-2 border-dashed border-gray-200 px-6 py-16 text-center">
             <div className="flex max-w-sm flex-col items-center gap-4">
               <span className="dark:text-dark-200 grid size-14 place-items-center rounded-2xl bg-gray-900/5 text-gray-500 dark:bg-white/5">
@@ -274,14 +341,14 @@ export default function MemoriaLista() {
           </div>
         )}
 
-        {lendo && semPasta && (
+        {aba === "meus" && lendo && semPasta && (
           <div className="dark:text-dark-200 mt-6 flex items-center justify-center gap-3 py-16 text-sm text-gray-600">
             <Spinner className="size-5" />
             Lendo a pasta…
           </div>
         )}
 
-        {!semPasta && (
+        {aba === "meus" && !semPasta && (
           <>
             {/* Busca */}
             <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -317,8 +384,18 @@ export default function MemoriaLista() {
                     <LinhaNota
                       key={item.path}
                       item={item}
+                      compartilhamentos={acessosPorPath.get(item.path) ?? 0}
                       onAbrir={() =>
                         setNota({ path: item.path, titulo: item.titulo })
+                      }
+                      onCompartilhar={() =>
+                        setCompartilhar({
+                          path: item.path,
+                          titulo: item.titulo,
+                        })
+                      }
+                      onGerenciar={() =>
+                        setGerenciar({ path: item.path, titulo: item.titulo })
                       }
                     />
                   ))}
@@ -350,6 +427,7 @@ export default function MemoriaLista() {
         close={() => setNota(null)}
         path={nota?.path ?? null}
         titulo={nota?.titulo}
+        onCompartilhado={recarregarConcedidos}
         onSalvo={(conteudo) => {
           if (!nota) return;
           // O título pode ter mudado no frontmatter — atualiza a linha sem reler
@@ -366,6 +444,30 @@ export default function MemoriaLista() {
           );
         }}
       />
+
+      <CompartilharModal
+        alvo={compartilhar}
+        close={() => setCompartilhar(null)}
+        onConcluido={recarregarConcedidos}
+      />
+      <GerenciarAcessoModal
+        alvo={gerenciar}
+        close={() => setGerenciar(null)}
+        onAlterado={recarregarConcedidos}
+        onAdicionar={() => {
+          const alvo = gerenciar;
+          setGerenciar(null);
+          setCompartilhar(alvo);
+        }}
+      />
+      <NotaRecebidaModal
+        item={recebido}
+        close={() => setRecebido(null)}
+        onAdministrar={(r) => {
+          setRecebido(null);
+          setGerenciar({ vaultNotaId: r.vaultNotaId, titulo: r.titulo });
+        }}
+      />
     </Page>
   );
 }
@@ -374,19 +476,25 @@ export default function MemoriaLista() {
 
 function LinhaNota({
   item,
+  compartilhamentos,
   onAbrir,
+  onCompartilhar,
+  onGerenciar,
 }: {
   item: ItemContexto;
+  compartilhamentos: number;
   onAbrir: () => void;
+  onCompartilhar: () => void;
+  onGerenciar: () => void;
 }) {
   const Icone = ICONE_POR_TIPO[item.tipo] ?? DocumentTextIcon;
 
   return (
-    <li>
+    <li className="dark:hover:bg-dark-600 flex items-center transition-colors hover:bg-gray-50">
       <button
         type="button"
         onClick={onAbrir}
-        className="dark:hover:bg-dark-600 flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-gray-50"
+        className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-start"
       >
         <span className="dark:bg-dark-600 dark:text-dark-200 grid size-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500">
           <Icone className="size-5 stroke-[1.5]" />
@@ -407,6 +515,16 @@ function LinhaNota({
             >
               {item.tipo}
             </Badge>
+            {compartilhamentos > 0 && (
+              <Badge
+                variant="soft"
+                color="info"
+                className="text-tiny shrink-0"
+                title={`${compartilhamentos} ${compartilhamentos === 1 ? "concessão ativa" : "concessões ativas"}`}
+              >
+                Compartilhada
+              </Badge>
+            )}
           </span>
           <span
             className="dark:text-dark-300 text-tiny mt-0.5 block truncate font-mono text-gray-400"
@@ -434,6 +552,30 @@ function LinhaNota({
           {formatarData(item.modificadoEm)}
         </span>
       </button>
+      <span className="flex shrink-0 items-center gap-0.5 pr-3 pl-2">
+        {compartilhamentos > 0 && (
+          <Button
+            variant="flat"
+            isIcon
+            className="size-8 rounded-lg"
+            onClick={onGerenciar}
+            title="Quem tem acesso"
+            aria-label="Quem tem acesso"
+          >
+            <KeyIcon className="size-4.5" />
+          </Button>
+        )}
+        <Button
+          variant="flat"
+          isIcon
+          className="size-8 rounded-lg"
+          onClick={onCompartilhar}
+          title="Compartilhar"
+          aria-label="Compartilhar"
+        >
+          <ShareIcon className="size-4.5" />
+        </Button>
+      </span>
     </li>
   );
 }

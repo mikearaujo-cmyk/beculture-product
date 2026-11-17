@@ -1,22 +1,12 @@
 // Import Dependencies
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import {
-  Dialog,
-  DialogPanel,
-  DialogTitle,
-  Transition,
-  TransitionChild,
-} from "@headlessui/react";
-import {
-  XMarkIcon,
-  CpuChipIcon,
-  FolderIcon,
-} from "@heroicons/react/24/outline";
+import { CpuChipIcon, FolderIcon } from "@heroicons/react/24/outline";
 
 // Local Imports
 import { Button, Spinner } from "@/components/ui";
 import { Input, Select, Textarea } from "@/components/ui/Form";
 import { MemoriaTextarea } from "@/components/shared/MemoriaMentions";
+import { ModalShell } from "@/components/shared/ModalShell";
 
 // ----------------------------------------------------------------------
 // Os dois destinos de qualquer conteúdo trazido por um conector (E-mail,
@@ -154,6 +144,96 @@ export function SalvarNaMemoriaModal({
 }
 
 // ----------------------------------------------------------------------
+// "Salvar no Repositório" de VÁRIOS itens de uma vez (seleção múltipla do
+// Google Drive). Sem revisão item a item: só o tema; cada item vira uma nota
+// com o próprio título e conteúdo. O progresso vem de quem chama.
+// ----------------------------------------------------------------------
+
+export function SalvarVariosNaMemoriaModal({
+  itens,
+  temas,
+  progresso,
+  close,
+  onConfirm,
+}: {
+  /** Títulos do que será gravado; null fecha o modal. */
+  itens: string[] | null;
+  temas: TemaOpcao[];
+  /** Quantos já foram gravados enquanto o lote roda (null = parado). */
+  progresso: number | null;
+  close: () => void;
+  onConfirm: (tema: string) => Promise<void>;
+}) {
+  const [tema, setTema] = useState("");
+  const abertoRef = useRef(false);
+
+  useEffect(() => {
+    if (itens && !abertoRef.current) {
+      abertoRef.current = true;
+      setTema(temas[0]?.id ?? "");
+    }
+    if (!itens) abertoRef.current = false;
+  }, [itens, temas]);
+
+  const total = itens?.length ?? 0;
+  const salvando = progresso !== null;
+
+  return (
+    <ModalShell
+      show={!!itens}
+      close={salvando ? () => undefined : close}
+      icon={CpuChipIcon}
+      title="Salvar no Repositório"
+      description="Cada arquivo vira um contexto da IA e passa a aparecer no grafo."
+      footer={
+        <>
+          <Button
+            variant="outlined"
+            className="rounded-lg"
+            onClick={close}
+            disabled={salvando}
+          >
+            Cancelar
+          </Button>
+          <Button
+            color="primary"
+            className="gap-1.5 rounded-lg"
+            onClick={() => void onConfirm(tema)}
+            disabled={salvando || !tema || total === 0}
+          >
+            {salvando && <Spinner className="size-4" />}
+            {salvando
+              ? `Gravando ${Math.min(progresso + 1, total)} de ${total}…`
+              : `Gravar ${total} ${total === 1 ? "arquivo" : "arquivos"}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Select
+          label="Tema"
+          value={tema}
+          onChange={(e) => setTema(e.target.value)}
+          data={temas.map((t) => ({ label: t.label, value: t.id }))}
+          description="Os temas são as pastas disponíveis no Repositório."
+          disabled={salvando}
+        />
+        <ul className="dark:border-dark-500 dark:bg-dark-800 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
+          {(itens ?? []).map((t, i) => (
+            <li
+              key={`${t}-${i}`}
+              className="dark:text-dark-200 text-xs-plus truncate text-gray-600"
+            >
+              {t}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ----------------------------------------------------------------------
 // "Salvar no Grupo" — escolhe o agrupamento que recebe uma cópia do conteúdo.
 // Sem grupos criados, oferece o atalho para criar o primeiro.
 // ----------------------------------------------------------------------
@@ -246,86 +326,5 @@ export function SalvarNoGrupoModal({
         )}
       </div>
     </ModalShell>
-  );
-}
-
-// ----------------------------------------------------------------------
-// Casca comum dos dois modais (mesma moldura da tela de Notas).
-// ----------------------------------------------------------------------
-
-function ModalShell({
-  show,
-  close,
-  icon: Icon,
-  title,
-  description,
-  children,
-  footer,
-}: {
-  show: boolean;
-  close: () => void;
-  icon: React.ElementType;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-  footer: React.ReactNode;
-}) {
-  return (
-    <Transition show={show}>
-      <Dialog onClose={close} className="relative z-60">
-        <TransitionChild
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm transition-opacity dark:bg-black/40" />
-        </TransitionChild>
-
-        <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4">
-          <TransitionChild
-            enter="ease-out duration-300"
-            enterFrom="opacity-0 scale-95"
-            enterTo="opacity-100 scale-100"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100 scale-100"
-            leaveTo="opacity-0 scale-95"
-          >
-            <DialogPanel className="dark:bg-dark-750 my-4 w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="dark:bg-primary-500/15 bg-primary-50 grid size-10 place-items-center rounded-xl">
-                    <Icon className="text-primary-600 dark:text-primary-400 size-5.5" />
-                  </span>
-                  <div>
-                    <DialogTitle className="dark:text-dark-50 text-base font-semibold text-gray-800">
-                      {title}
-                    </DialogTitle>
-                    <p className="dark:text-dark-300 text-xs-plus text-gray-500">
-                      {description}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={close}
-                  variant="flat"
-                  isIcon
-                  className="size-8 shrink-0 rounded-lg"
-                  aria-label="Fechar"
-                >
-                  <XMarkIcon className="size-5" />
-                </Button>
-              </div>
-
-              <div className="mt-5">{children}</div>
-
-              <div className="mt-6 flex justify-end gap-3">{footer}</div>
-            </DialogPanel>
-          </TransitionChild>
-        </div>
-      </Dialog>
-    </Transition>
   );
 }

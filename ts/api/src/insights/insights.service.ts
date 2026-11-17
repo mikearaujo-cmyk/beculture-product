@@ -105,7 +105,7 @@ export class InsightsService {
    */
   async list(empresaId: string, usuarioId: string): Promise<InsightDto[]> {
     const rows = await this.prisma.insight.findMany({
-      where: { empresaId },
+      where: { empresaId, ...visivelPara(usuarioId) },
       orderBy: { criadoEm: 'desc' },
       omit: OMIT_DETALHE,
       include: {
@@ -129,7 +129,7 @@ export class InsightsService {
     id: string,
   ): Promise<InsightDetalheDto> {
     const row = await this.prisma.insight.findFirst({
-      where: { id, empresaId },
+      where: { id, empresaId, ...visivelPara(usuarioId) },
       include: {
         ...INCLUDE_DIRECIONAMENTO,
         feedbacks: {
@@ -168,7 +168,7 @@ export class InsightsService {
     insightId: string,
     dto: InsightFeedbackDto,
   ): Promise<InsightFeedbackResumo> {
-    await this.exigirInsightDaEmpresa(empresaId, insightId);
+    await this.exigirInsightDaEmpresa(empresaId, insightId, usuarioId);
     // Motivo e comentário só fazem sentido no 👎; no 👍 são limpos.
     const motivo = dto.util ? null : (dto.motivo ?? null);
     const comentario = dto.util ? null : dto.comentario?.trim() || null;
@@ -186,7 +186,7 @@ export class InsightsService {
     usuarioId: string,
     insightId: string,
   ): Promise<void> {
-    await this.exigirInsightDaEmpresa(empresaId, insightId);
+    await this.exigirInsightDaEmpresa(empresaId, insightId, usuarioId);
     await this.prisma.insightFeedback.deleteMany({
       where: { insightId, usuarioId },
     });
@@ -195,9 +195,10 @@ export class InsightsService {
   private async exigirInsightDaEmpresa(
     empresaId: string,
     insightId: string,
+    usuarioId: string,
   ): Promise<void> {
     const insight = await this.prisma.insight.findFirst({
-      where: { id: insightId, empresaId },
+      where: { id: insightId, empresaId, ...visivelPara(usuarioId) },
       select: { id: true },
     });
     if (!insight) throw new NotFoundException('Insight não encontrado.');
@@ -213,7 +214,11 @@ export class InsightsService {
     usuarioId: string,
     limite = 20,
   ): Promise<{ insights: InsightDto[]; total: number }> {
-    const where = { empresaId, leituras: { none: { usuarioId } } };
+    const where = {
+      empresaId,
+      ...visivelPara(usuarioId),
+      leituras: { none: { usuarioId } },
+    };
     const [rows, total] = await Promise.all([
       this.prisma.insight.findMany({
         where,
@@ -233,7 +238,7 @@ export class InsightsService {
     usuarioId: string,
     insightId: string,
   ): Promise<void> {
-    await this.exigirInsightDaEmpresa(empresaId, insightId);
+    await this.exigirInsightDaEmpresa(empresaId, insightId, usuarioId);
     await this.prisma.insightLeitura.upsert({
       where: { insightId_usuarioId: { insightId, usuarioId } },
       create: { insightId, usuarioId },
@@ -244,7 +249,11 @@ export class InsightsService {
   /** Marca como vistos todos os insights da empresa ainda não lidos pelo usuário. */
   async marcarTodosLidos(empresaId: string, usuarioId: string): Promise<void> {
     const pendentes = await this.prisma.insight.findMany({
-      where: { empresaId, leituras: { none: { usuarioId } } },
+      where: {
+        empresaId,
+        ...visivelPara(usuarioId),
+        leituras: { none: { usuarioId } },
+      },
       select: { id: true },
     });
     if (pendentes.length === 0) return;
@@ -260,6 +269,8 @@ export class InsightsService {
     itens: InsightGerado[],
     origem: string,
     memoriaId?: string,
+    /** Quem gerou: o insight fica PRIVADO dessa pessoa (ver `visivelPara`). */
+    privado?: { usuarioId: string; repositorioId?: string | null },
   ): Promise<InsightDto[]> {
     const criados: InsightComRelacoes[] = [];
     for (const it of itens) {
@@ -273,6 +284,12 @@ export class InsightsService {
           ...(it.liderado ? { liderado: it.liderado } : {}),
           origem,
           ...(memoriaId ? { memoriaId } : {}),
+          ...(privado
+            ? {
+                usuarioId: privado.usuarioId,
+                repositorioId: privado.repositorioId ?? null,
+              }
+            : {}),
           ...(it.direcionamentoId
             ? { direcionamentoId: it.direcionamentoId }
             : {}),
@@ -307,6 +324,8 @@ export class InsightsService {
       max?: number;
       /** Modelo escolhido no seletor da ação de origem. */
       modelo?: string;
+      /** Repositório pessoal de onde o material saiu, quando houver. */
+      repositorioId?: string | null;
     },
   ): Promise<InsightDto[]> {
     const conteudo = (material.conteudo || '').trim();
@@ -338,10 +357,25 @@ export class InsightsService {
         this.logger.warn('IA não retornou insights válidos para o material.');
         return [];
       }
-      return this.createMany(empresaId, itens, material.origem, material.memoriaId);
+      // Material pessoal (ata, transcrição, documento, notas do Repositório)
+      // gera insight PRIVADO de quem o gerou: os insights carregam análise e
+      // trechos literais do material, e a hierarquia não dá acesso a isso.
+      return this.createMany(empresaId, itens, material.origem, material.memoriaId, {
+        usuarioId,
+        repositorioId: material.repositorioId ?? null,
+      });
     } catch (err) {
       this.logger.error(`Falha ao gerar insights: ${String(err)}`);
       return [];
     }
   }
+}
+
+/**
+ * Visibilidade de insights: os da empresa (sem dono — anteriores a esta versão
+ * ou criados pela organização) e os PRIVADOS do próprio usuário. Insight
+ * gerado do material pessoal de outra pessoa nunca aparece.
+ */
+function visivelPara(usuarioId: string) {
+  return { OR: [{ usuarioId: null }, { usuarioId }] };
 }

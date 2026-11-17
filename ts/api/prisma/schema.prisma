@@ -211,19 +211,25 @@ model Empresa {
   mcpApiKeys             McpApiKey[]
   aiUsage                AiUsage[]
 
+  vaultRepositorios        VaultRepositorio[]
+  compartilhamentos        Compartilhamento[]
+  colecoesCompartilhadas   ColecaoCompartilhada[]
+  politicaCompartilhamento PoliticaCompartilhamento?
+  auditoriaEventos         AuditoriaEvento[]
+
   @@map("empresas")
 }
 
 /// Quem faz login; o trial (14 dias) é contado por usuário.
 model Usuario {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   empresaId         String
   nome              String
-  email             String   @unique
+  email             String    @unique
   senhaHash         String
   telefone          String?
   avatarUrl         String?
-  role              UserRole @default(membro)
+  role              UserRole  @default(membro)
   trialStartsAt     DateTime
   trialEndsAt       DateTime
   /// Último modelo escolhido no seletor de cada ação, por modalidade:
@@ -234,7 +240,7 @@ model Usuario {
   /// BeCulture do plano esgotar. Vale enquanto for >= início do ciclo atual
   /// da cota (ou seja, até a cota renovar). Null = não autorizado.
   byokAposCotaEm    DateTime?
-  criadoEm          DateTime @default(now())
+  criadoEm          DateTime  @default(now())
 
   empresa   Empresa    @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   squadPins SquadPin[]
@@ -1074,6 +1080,12 @@ model Insight {
   /// Trechos LITERAIS do material de origem que sustentam o insight. O parse
   /// descarta qualquer trecho que não apareça no material — nunca inventado.
   evidencias       String[]          @default([])
+  /// Quando o insight foi gerado a partir do Repositório PESSOAL de alguém
+  /// (`gerar-repositorio`), estes campos guardam o dono e o repositório: o
+  /// insight carrega trechos literais das notas e só o dono pode vê-lo.
+  /// Nulos = insight da empresa (atas, manuais), visível como antes.
+  usuarioId        String?
+  repositorioId    String?
   criadoEm         DateTime          @default(now())
 
   empresa        Empresa                @relation(fields: [empresaId], references: [id], onDelete: Cascade)
@@ -1203,7 +1215,9 @@ model VaultNota {
   criadoEm       DateTime @default(now())
   atualizadoEm   DateTime @updatedAt
 
-  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  empresa           Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  compartilhamentos Compartilhamento[]
+  colecoes          ColecaoNota[]
 
   @@unique([empresaId, repositorioId, path])
   @@index([empresaId, repositorioId])
@@ -1225,7 +1239,7 @@ model VaultNota {
 
 /// Documento do Repositório da organização. Pertence à organização, não a quem enviou.
 model RepositorioOrgDocumento {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   empresaId         String
   organizacaoId     String
   nome              String
@@ -1234,15 +1248,24 @@ model RepositorioOrgDocumento {
   /// Tamanho do arquivo original, em bytes.
   tamanho           Int
   /// Texto extraído do arquivo — é o que a IA lê.
-  conteudo          String   @default("")
+  conteudo          String    @default("")
   /// processando | disponivel | erro
-  status            String   @default("processando")
+  status            String    @default("processando")
   erro              String?
   /// Quem enviou. Autoria, não posse: o documento é da organização.
   adicionadoPorId   String
   adicionadoPorNome String
-  criadoEm          DateTime @default(now())
-  atualizadoEm      DateTime @updatedAt
+  /// `upload` (enviado direto) | `copia_nota` (cópia publicada de uma nota
+  /// pessoal). Na cópia, o documento passa a ser da organização: não acompanha
+  /// mais o original e o dono original não pode revogá-lo.
+  origemTipo        String    @default("upload")
+  origemVaultNotaId String?
+  origemDonoId      String?
+  origemDonoNome    String?
+  editadoPorId      String?
+  editadoEm         DateTime?
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
 
   @@index([empresaId, organizacaoId])
   @@map("repositorio_org_documentos")
@@ -1680,4 +1703,210 @@ model PlataformaPlanoIa {
   atualizadoEm         DateTime   @updatedAt
 
   @@map("plataforma_planos_ia")
+}
+
+// ---------- Privacidade do Repositório pessoal e compartilhamento ----------
+// O Repositório pessoal é PRIVADO por padrão e isso é garantido no servidor,
+// não na interface. Hierarquia, cargo e papel (Owner/Admin) NUNCA concedem
+// acesso a conteúdo pessoal: só uma concessão explícita (`Compartilhamento`)
+// feita pelo dono (ou por quem ele autorizou a administrar aquela nota).
+
+/// Dono de um repositório pessoal. O `repositorioId` vem do cliente (header
+/// `X-Repositorio-Id`); esta tabela é o que o servidor confere antes de ler ou
+/// gravar qualquer nota daquele repositório. Reivindicado no primeiro uso.
+model VaultRepositorio {
+  id            String   @id @default(cuid())
+  empresaId     String
+  repositorioId String
+  donoUsuarioId String
+  criadoEm      DateTime @default(now())
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@unique([empresaId, repositorioId])
+  @@index([empresaId, donoUsuarioId])
+  @@map("vault_repositorios")
+}
+
+/// Tipo de conteúdo compartilhado. `contexto` fica reservado para os contextos
+/// colaborativos (fase 3).
+enum CompartilhamentoRecurso {
+  nota_vault
+  contexto
+  /// Agrupamento de arquivos (tag do grafo): concessão sobre uma
+  /// `ColecaoCompartilhada`, que vale para cada nota da coleção.
+  tag
+}
+
+/// Quem recebe a concessão. `equipe` = liderados diretos do gestor
+/// `destinatarioId` (Membro.id); `area` = membros da área `destinatarioId`;
+/// `empresa` = todos os membros ativos (sem convidados).
+enum CompartilhamentoDestinatario {
+  membro
+  equipe
+  area
+  empresa
+  contexto
+}
+
+/// Para grupos (equipe, área, empresa): `fixa` vale só para quem fazia parte
+/// do grupo no momento da concessão (materializado em CompartilhamentoMembro);
+/// `dinamica` acompanha a composição atual e futura do grupo.
+enum CompartilhamentoAbrangencia {
+  fixa
+  dinamica
+}
+
+enum CompartilhamentoStatus {
+  ativo
+  revogado
+  origem_removida
+}
+
+/// Uma concessão explícita de acesso a um conteúdo pessoal.
+model Compartilhamento {
+  id                    String                       @id @default(cuid())
+  empresaId             String
+  recursoTipo           CompartilhamentoRecurso      @default(nota_vault)
+  /// Nota compartilhada. `SetNull` quando o dono apaga a nota (o status vira
+  /// `origem_removida` na mesma transação; a concessão some do acesso).
+  vaultNotaId           String?
+  /// Coleção (tag) compartilhada, quando `recursoTipo = tag`. Exclusivo com
+  /// `vaultNotaId`.
+  colecaoId             String?
+  /// Título da nota no momento da concessão — só para histórico/auditoria
+  /// quando a origem deixar de existir.
+  recursoTitulo         String
+  donoUsuarioId         String
+  concedidoPorUsuarioId String
+  destinatarioTipo      CompartilhamentoDestinatario
+  /// Membro.id (membro), Membro.id do gestor (equipe), Area.id (area); nulo
+  /// para empresa.
+  destinatarioId        String?
+  abrangencia           CompartilhamentoAbrangencia  @default(fixa)
+  podeVisualizar        Boolean                      @default(true)
+  podeUsarIa            Boolean                      @default(false)
+  podeAdministrar       Boolean                      @default(false)
+  expiraEm              DateTime?
+  status                CompartilhamentoStatus       @default(ativo)
+  revogadoEm            DateTime?
+  revogadoPorUsuarioId  String?
+  criadoEm              DateTime                     @default(now())
+  atualizadoEm          DateTime                     @updatedAt
+
+  empresa      Empresa                  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  vaultNota    VaultNota?               @relation(fields: [vaultNotaId], references: [id], onDelete: SetNull)
+  colecao      ColecaoCompartilhada?    @relation(fields: [colecaoId], references: [id], onDelete: SetNull)
+  membrosFixos CompartilhamentoMembro[]
+
+  @@index([empresaId, vaultNotaId])
+  @@index([empresaId, colecaoId])
+  @@index([empresaId, donoUsuarioId])
+  @@index([empresaId, destinatarioTipo, destinatarioId])
+  @@map("compartilhamentos")
+}
+
+/// Membros abrangidos por uma concessão de grupo com abrangência `fixa`.
+model CompartilhamentoMembro {
+  compartilhamentoId String
+  membroId           String
+  usuarioId          String
+
+  compartilhamento Compartilhamento @relation(fields: [compartilhamentoId], references: [id], onDelete: Cascade)
+
+  @@id([compartilhamentoId, membroId])
+  @@index([usuarioId])
+  @@map("compartilhamento_membros")
+}
+
+/// Políticas de compartilhamento da empresa. Sem linha = padrões abaixo.
+model PoliticaCompartilhamento {
+  empresaId             String   @id
+  permitirMembro        Boolean  @default(true)
+  permitirEquipe        Boolean  @default(true)
+  permitirArea          Boolean  @default(true)
+  permitirEmpresa       Boolean  @default(true)
+  permitirUsoIa         Boolean  @default(true)
+  permitirPublicacaoOrg Boolean  @default(true)
+  /// Prazo máximo de uma concessão, em dias. Nulo = sem prazo máximo.
+  expiracaoMaximaDias   Int?
+  /// Por quanto tempo os eventos de auditoria devem ser mantidos. Nulo = sem
+  /// expurgo (o expurgo automático não é feito por esta versão).
+  retencaoAuditoriaDias Int?
+  atualizadoPorId       String?
+  atualizadoEm          DateTime @updatedAt
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@map("politicas_compartilhamento")
+}
+
+/// Trilha de auditoria. Só METADADOS: nunca conteúdo de nota, arquivo ou
+/// mensagem. Ler a auditoria não dá acesso ao conteúdo.
+model AuditoriaEvento {
+  id            String   @id @default(cuid())
+  empresaId     String
+  atorUsuarioId String?
+  atorNome      String?
+  /// Ex.: compartilhamento.criado, conteudo.visualizado, conteudo.usado_ia.
+  acao          String
+  recursoTipo   String?
+  recursoId     String?
+  recursoTitulo String?
+  /// Dono do conteúdo envolvido — permite ao dono ver o histórico do que é dele.
+  donoUsuarioId String?
+  alvoTipo      String?
+  alvoId        String?
+  metadados     Json?
+  criadoEm      DateTime @default(now())
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, criadoEm])
+  @@index([empresaId, recursoTipo, recursoId])
+  @@index([empresaId, donoUsuarioId, criadoEm])
+  @@map("auditoria_eventos")
+}
+
+/// Agrupamento de arquivos compartilhável: uma TAG do Repositório pessoal
+/// (nó do grafo). Quem define os arquivos da tag é o navegador do dono — a
+/// tag nasce do texto do vault inteiro, que só ele lê —, e o servidor só
+/// aceita notas do repositório verificado do próprio dono.
+///
+/// `sincronizada`: a escolha EXPLÍCITA do dono entre "só os arquivos de
+/// agora" (false: a coleção não muda) e "manter sincronizado com a tag"
+/// (true: o navegador do dono atualiza a coleção quando o vault é lido, e
+/// arquivos novos da tag passam a valer para quem recebeu).
+model ColecaoCompartilhada {
+  id            String   @id @default(cuid())
+  empresaId     String
+  donoUsuarioId String
+  repositorioId String
+  /// Id do nó no grafo (ex.: "tag::onboarding", "categoria::cultura").
+  chave         String
+  rotulo        String
+  sincronizada  Boolean  @default(false)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  empresa           Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  notas             ColecaoNota[]
+  compartilhamentos Compartilhamento[]
+
+  @@index([empresaId, repositorioId, chave])
+  @@index([empresaId, donoUsuarioId])
+  @@map("colecoes_compartilhadas")
+}
+
+/// Notas que compõem uma coleção. Some junto quando a nota sai do vault.
+model ColecaoNota {
+  colecaoId   String
+  vaultNotaId String
+
+  colecao   ColecaoCompartilhada @relation(fields: [colecaoId], references: [id], onDelete: Cascade)
+  vaultNota VaultNota            @relation(fields: [vaultNotaId], references: [id], onDelete: Cascade)
+
+  @@id([colecaoId, vaultNotaId])
+  @@index([vaultNotaId])
+  @@map("colecao_notas")
 }

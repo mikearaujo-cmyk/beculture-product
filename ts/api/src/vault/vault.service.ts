@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { AcessoConteudoService } from '@/compartilhamento/acesso-conteudo.service';
+import { AuditoriaService } from '@/auditoria/auditoria.service';
 
 /** Uma nota .md vinda do cliente (conteúdo lido no navegador). */
 export interface VaultNotaInput {
@@ -14,7 +16,12 @@ export interface VaultNotaHit {
   path: string;
   titulo: string;
   conteudo: string;
+  /** Preenchido só nas notas de OUTRA pessoa, compartilhadas com o usuário. */
+  compartilhadoPor?: string;
 }
+
+/** Prefixo do `path` de uma nota compartilhada no contexto da IA. */
+export const PREFIXO_PATH_COMPARTILHADA = 'compartilhada:';
 
 /** Referência de nota (sem conteúdo) — alvo possível de um [[wikilink]]. */
 export interface VaultNotaRef {
@@ -37,7 +44,11 @@ function hashConteudo(conteudo: string): string {
  */
 @Injectable()
 export class VaultService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly acesso: AcessoConteudoService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   /** Quantas notas o repositório tem sincronizadas. */
   count(empresaId: string, repositorioId: string | null): Promise<number> {
@@ -116,9 +127,48 @@ export class VaultService {
     paths: string[],
   ): Promise<{ total: number; removidas: number }> {
     if (!repositorioId) return { total: 0, removidas: 0 };
-    const del = await this.prisma.vaultNota.deleteMany({
+    // Notas que saem da pasta: os compartilhamentos delas passam a
+    // `origem_removida` na MESMA transação da exclusão — nenhum destinatário
+    // fica com referência a algo que não existe, e a auditoria é preservada.
+    const saindo = await this.prisma.vaultNota.findMany({
       where: { empresaId, repositorioId, path: { notIn: paths } },
+      select: { id: true },
     });
+    const ids = saindo.map((n) => n.id);
+    const afetados = ids.length
+      ? await this.prisma.compartilhamento.findMany({
+          where: { empresaId, vaultNotaId: { in: ids }, status: 'ativo' },
+          select: {
+            id: true,
+            vaultNotaId: true,
+            recursoTitulo: true,
+            donoUsuarioId: true,
+          },
+        })
+      : [];
+    const [, del] = await this.prisma.$transaction([
+      this.prisma.compartilhamento.updateMany({
+        where: { empresaId, id: { in: afetados.map((a) => a.id) } },
+        data: { status: 'origem_removida' },
+      }),
+      this.prisma.vaultNota.deleteMany({
+        where: { empresaId, repositorioId, id: { in: ids } },
+      }),
+    ]);
+    if (afetados.length) {
+      await this.auditoria.registrar(
+        ...afetados.map((a) => ({
+          empresaId,
+          atorUsuarioId: a.donoUsuarioId,
+          acao: 'compartilhamento.origem_removida' as const,
+          recursoTipo: 'nota_vault',
+          recursoId: a.vaultNotaId,
+          recursoTitulo: a.recursoTitulo,
+          donoUsuarioId: a.donoUsuarioId,
+          metadados: { compartilhamentoId: a.id },
+        })),
+      );
+    }
     const total = await this.count(empresaId, repositorioId);
     return { total, removidas: del.count };
   }
@@ -254,5 +304,77 @@ export class VaultService {
       select: { titulo: true },
     });
     return recentes.map((r) => r.titulo);
+  }
+
+  /**
+   * Notas de OUTRAS pessoas compartilhadas com o usuário COM a permissão de uso
+   * pela IA — e só elas. A autorização é aplicada DENTRO da consulta
+   * (`id = ANY(autorizadas)`) e resolvida na hora, sem cache: uma revogação vale
+   * já na pergunta seguinte. Visualizar não basta.
+   *
+   * Sem fallback de "mais recentes": nota alheia só entra quando casa com a
+   * pergunta. Cada uso é auditado (`conteudo.usado_ia`).
+   */
+  async searchCompartilhadas(
+    empresaId: string,
+    usuarioId: string,
+    query: string,
+    k = 4,
+  ): Promise<VaultNotaHit[]> {
+    const q = query.trim();
+    if (!q) return [];
+    const mapa = await this.acesso.acessos(empresaId, usuarioId);
+    const ids = [...mapa.values()]
+      .filter((a) => a.usarIa)
+      .map((a) => a.vaultNotaId);
+    if (!ids.length) return [];
+    const rows = await this.prisma.$queryRaw<
+      { id: string; titulo: string; conteudo: string }[]
+    >`
+      SELECT "id", "titulo", "conteudo"
+      FROM "vault_notas"
+      WHERE "empresaId" = ${empresaId}
+        AND "id" = ANY(${ids}::text[])
+        AND to_tsvector('portuguese', coalesce("titulo", '') || ' ' || coalesce("conteudo", ''))
+            @@ websearch_to_tsquery('portuguese', ${q})
+      ORDER BY ts_rank(
+        to_tsvector('portuguese', coalesce("titulo", '') || ' ' || coalesce("conteudo", '')),
+        websearch_to_tsquery('portuguese', ${q})
+      ) DESC
+      LIMIT ${k}
+    `;
+    // Revalidação no resultado: só sai o que está no mapa autorizado.
+    const autorizadas = rows.filter((r) => mapa.get(r.id)?.usarIa);
+    if (!autorizadas.length) return [];
+    const donos = [
+      ...new Set(autorizadas.map((r) => mapa.get(r.id)!.donoUsuarioId)),
+    ];
+    const us = await this.prisma.usuario.findMany({
+      where: { empresaId, id: { in: donos } },
+      select: { id: true, nome: true, email: true },
+    });
+    const nome = new Map(us.map((u) => [u.id, u.nome || u.email]));
+    await this.auditoria.registrar(
+      ...autorizadas.map((r) => {
+        const a = mapa.get(r.id)!;
+        return {
+          empresaId,
+          atorUsuarioId: usuarioId,
+          acao: 'conteudo.usado_ia' as const,
+          recursoTipo: 'nota_vault',
+          recursoId: r.id,
+          recursoTitulo: r.titulo,
+          donoUsuarioId: a.donoUsuarioId,
+          metadados: { compartilhamentoIds: a.compartilhamentoIds },
+        };
+      }),
+    );
+    return autorizadas.map((r) => ({
+      path: `${PREFIXO_PATH_COMPARTILHADA}${r.id}`,
+      titulo: r.titulo,
+      conteudo: r.conteudo,
+      compartilhadoPor:
+        nome.get(mapa.get(r.id)!.donoUsuarioId) ?? 'outro membro',
+    }));
   }
 }

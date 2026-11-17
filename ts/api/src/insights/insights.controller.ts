@@ -155,7 +155,7 @@ export class InsightsController {
   ): Promise<{ insights: InsightDto[] }> {
     const [notas, documentos] = await Promise.all([
       this.vault.recentes(user.empresaId, repositorioId, 12),
-      this.repositorioOrg.recentes(user.empresaId, organizacaoId, 8),
+      this.repositorioOrg.recentes(user, organizacaoId, 8),
     ]);
 
     // Material sob orçamento: cada item entra recortado, até o teto total —
@@ -186,6 +186,7 @@ export class InsightsController {
         conteudo: partes.join('\n\n'),
         origem: 'Repositório',
         modelo: body.modelo,
+        repositorioId,
       },
     );
     return { insights };

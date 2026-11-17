@@ -53,6 +53,7 @@ import {
   DocumentArrowUpIcon,
   EnvelopeIcon,
   HashtagIcon,
+  FolderOpenIcon,
   ListBulletIcon,
   HomeIcon,
 } from "@heroicons/react/24/outline";
@@ -287,6 +288,7 @@ export const navigationIcons: Record<string, ElementType> = {
   "ceo.ia": SparklesIcon,
   "ceo.email": EnvelopeIcon,
   "ceo.slack": HashtagIcon,
+  "ceo.drive": FolderOpenIcon,
   "ceo.agenda": CalendarDaysIcon,
   "ceo.notas": PencilSquareIcon,
   "ceo.todo": CheckDoubleIcon,

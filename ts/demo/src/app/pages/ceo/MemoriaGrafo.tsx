@@ -26,6 +26,13 @@ import { memoriaVaultSupported } from "@/utils/memoriaVault";
 import { criarRelacao, removerRelacao } from "./grafo-relacoes";
 import { avisarFalhaAoSalvarNaMemoria } from "./memoria-conteudo";
 import {
+  CompartilharModal,
+  type AlvoCompartilhamento,
+} from "./compartilhamento/CompartilharModal";
+import { GerenciarAcessoModal } from "./compartilhamento/GerenciarAcessoModal";
+import { sincronizarTagsCompartilhadas } from "./compartilhamento/sincronizarTags";
+import { tagsCompartilhadasApi } from "@/services/api/compartilhamentos";
+import {
   escolherPastaContexto,
   lerArquivosMd,
   notasParaVault,
@@ -191,6 +198,28 @@ export default function MemoriaGrafo() {
   const [nota, setNota] = useState<{ path: string; titulo: string } | null>(
     null,
   );
+  // Compartilhamento de TAG (agrupamento de arquivos) a partir do painel.
+  const [compartilharTag, setCompartilharTag] =
+    useState<AlvoCompartilhamento | null>(null);
+  const [gerenciarTag, setGerenciarTag] =
+    useState<AlvoCompartilhamento | null>(null);
+  /** chave da tag → concessões ativas (para o selo "Compartilhada"). */
+  const [tagsCompartilhadas, setTagsCompartilhadas] = useState<
+    Map<string, number>
+  >(() => new Map());
+  const recarregarTagsCompartilhadas = useCallback(() => {
+    tagsCompartilhadasApi()
+      .then((ts) =>
+        setTagsCompartilhadas(
+          new Map(
+            ts
+              .filter((t) => t.compartilhamentos > 0)
+              .map((t) => [t.chave, t.compartilhamentos]),
+          ),
+        ),
+      )
+      .catch(() => setTagsCompartilhadas(new Map()));
+  }, []);
   /**
    * Tags de que a nota aberta faz parte — badges no NotaMemoriaModal.
    *
@@ -364,6 +393,10 @@ export default function MemoriaGrafo() {
       toast.success("Repositório sincronizado", {
         description: `${r.total} notas disponíveis para a IA.`,
       });
+      // Tags compartilhadas "em sincronia" acompanham o vault de agora.
+      void sincronizarTagsCompartilhadas(files)
+        .then(() => recarregarTagsCompartilhadas())
+        .catch(() => {});
 
       // Segunda etapa: classificar em categorias macro. Fica DEPOIS do toast
       // porque a sincronização já está completa neste ponto — a classificação
@@ -386,7 +419,7 @@ export default function MemoriaGrafo() {
           "O grafo foi montado, mas as notas não chegaram ao servidor.",
       });
     }
-  }, []);
+  }, [recarregarTagsCompartilhadas]);
 
   const loadFromHandle = useCallback(
     async (
@@ -507,6 +540,26 @@ export default function MemoriaGrafo() {
       });
     return () => {
       alive = false;
+    };
+  }, [repositorioId]);
+
+  // Tags já compartilhadas deste repositório (selo e "Quem tem acesso").
+  useEffect(() => {
+    let vivo = true;
+    tagsCompartilhadasApi()
+      .then((ts) => {
+        if (!vivo) return;
+        setTagsCompartilhadas(
+          new Map(
+            ts
+              .filter((t) => t.compartilhamentos > 0)
+              .map((t) => [t.chave, t.compartilhamentos]),
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
     };
   }, [repositorioId]);
 
@@ -1745,6 +1798,38 @@ export default function MemoriaGrafo() {
           podeEscrever={podeEscrever}
           onRelacionar={relacionar}
           onDesrelacionar={desrelacionar}
+          compartilhamentosDaSelecao={
+            selecao?.tipo === "entidade"
+              ? (tagsCompartilhadas.get(selecao.id) ?? 0)
+              : 0
+          }
+          onCompartilhar={(s) =>
+            setCompartilharTag({
+              tag: { chave: s.id, rotulo: s.titulo, paths: s.conteudos },
+              titulo: `#${s.titulo}`,
+            })
+          }
+          onGerenciarAcesso={(s) =>
+            setGerenciarTag({
+              tag: { chave: s.id, rotulo: s.titulo, paths: s.conteudos },
+              titulo: `#${s.titulo}`,
+            })
+          }
+        />
+        <CompartilharModal
+          alvo={compartilharTag}
+          close={() => setCompartilharTag(null)}
+          onConcluido={recarregarTagsCompartilhadas}
+        />
+        <GerenciarAcessoModal
+          alvo={gerenciarTag}
+          close={() => setGerenciarTag(null)}
+          onAlterado={recarregarTagsCompartilhadas}
+          onAdicionar={() => {
+            const alvo = gerenciarTag;
+            setGerenciarTag(null);
+            setCompartilharTag(alvo);
+          }}
         />
 
         {/* Estados: carregando / vazio */}

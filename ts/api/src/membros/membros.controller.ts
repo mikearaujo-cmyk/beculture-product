@@ -19,6 +19,10 @@ import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { CurrentUser } from '@/common/current-user.decorator';
 import { PermissoesGuard, RequerPermissao } from '@/acesso/permissoes.guard';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
+import {
+  AuditoriaService,
+  type EventoAuditoria,
+} from '@/auditoria/auditoria.service';
 
 /**
  * Membros da organização — aba Membros da tela de Administração.
@@ -34,7 +38,10 @@ import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 @Controller('empresa/membros')
 @UseGuards(JwtAuthGuard)
 export class MembrosController {
-  constructor(private readonly membros: MembrosService) {}
+  constructor(
+    private readonly membros: MembrosService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   /** GET /empresa/membros?status=&q= → membros do tenant. */
   @Get()
@@ -63,12 +70,44 @@ export class MembrosController {
   @Patch(':id')
   @UseGuards(PermissoesGuard)
   @RequerPermissao('membros.editar')
-  atualizar(
+  async atualizar(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: AtualizarMembroDto,
   ) {
-    return this.membros.atualizar(user.empresaId, id, dto, user.id);
+    const antes = await this.membros.obter(user.empresaId, id);
+    const depois = await this.membros.atualizar(user.empresaId, id, dto, user.id);
+    // Auditoria de desligamento e de mudanças de equipe/área: elas alteram
+    // quem recebe compartilhamentos DINÂMICOS (e o desligamento suspende tudo
+    // o que a pessoa recebeu e concedeu). Só metadados.
+    const base = {
+      empresaId: user.empresaId,
+      atorUsuarioId: user.id,
+      recursoTipo: 'membro',
+      recursoId: id,
+      recursoTitulo: depois.nome,
+    };
+    const eventos: EventoAuditoria[] = [];
+    if (antes.status !== depois.status) {
+      if (depois.status === 'inativo') eventos.push({ ...base, acao: 'membro.desativado' });
+      else if (antes.status === 'inativo') eventos.push({ ...base, acao: 'membro.reativado' });
+    }
+    if (antes.gestorId !== depois.gestorId) {
+      eventos.push({
+        ...base,
+        acao: 'membro.gestor_alterado',
+        metadados: { de: antes.gestorId, para: depois.gestorId },
+      });
+    }
+    if (antes.areaId !== depois.areaId) {
+      eventos.push({
+        ...base,
+        acao: 'membro.area_alterada',
+        metadados: { de: antes.areaId, para: depois.areaId },
+      });
+    }
+    await this.auditoria.registrar(...eventos);
+    return depois;
   }
 
   /**
@@ -86,11 +125,20 @@ export class MembrosController {
   @UseGuards(PermissoesGuard)
   @RequerPermissao('membros.desativar')
   @HttpCode(204)
-  remover(
+  async remover(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Query() query: ExcluirMembroQuery,
   ) {
-    return this.membros.remover(user.empresaId, id, user.id, query);
+    const antes = await this.membros.obter(user.empresaId, id);
+    await this.membros.remover(user.empresaId, id, user.id, query);
+    await this.auditoria.registrar({
+      empresaId: user.empresaId,
+      atorUsuarioId: user.id,
+      acao: 'membro.removido',
+      recursoTipo: 'membro',
+      recursoId: id,
+      recursoTitulo: antes.nome,
+    });
   }
 }
