@@ -1,8 +1,14 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { extname } from 'node:path';
 import { OauthProviderService } from './oauth-provider.service';
 import { getProviderBinary, getProviderJson } from './provider-fetch';
 import { extrairTexto } from '@/ai/analise/extrair-texto';
+import { caminhoDemo, itemDemo, listarDemo } from './drive-demo';
 
 /**
  * Um arquivo (ou pasta) do Drive, já normalizado — mesmo contrato para
@@ -148,6 +154,7 @@ export class DriveApiService {
       limite?: number;
     },
   ): Promise<{ arquivos: DriveArquivo[]; proximaPagina?: string }> {
+    if (await this.ehDemo(empresaId, provedor)) return listarDemo(opts);
     const token = await this.token(empresaId, provedor);
     const max = Math.min(
       Math.max(1, Math.trunc(opts.limite ?? LIMITE_PADRAO) || LIMITE_PADRAO),
@@ -204,6 +211,7 @@ export class DriveApiService {
     provedor: string,
     id: string,
   ): Promise<{ id: string; nome: string }[]> {
+    if (await this.ehDemo(empresaId, provedor)) return caminhoDemo(id);
     const token = await this.token(empresaId, provedor);
     const trilha: { id: string; nome: string }[] = [];
     let atual: string | undefined = id;
@@ -228,6 +236,21 @@ export class DriveApiService {
     provedor: string,
     id: string,
   ): Promise<DriveConteudo> {
+    if (await this.ehDemo(empresaId, provedor)) {
+      const { arquivo, texto } = this.demo(id);
+      if (arquivo.pasta) {
+        throw new BadRequestException('Pastas não têm conteúdo para prévia.');
+      }
+      return texto
+        ? { arquivo, texto, suportado: true, truncado: false }
+        : {
+            arquivo,
+            texto: null,
+            suportado: false,
+            truncado: false,
+            motivo: 'Prévia de texto indisponível para este tipo de arquivo.',
+          };
+    }
     const token = await this.token(empresaId, provedor);
     const arquivo = this.mapear(await this.metadados(token, id));
     if (arquivo.pasta) {
@@ -301,6 +324,25 @@ export class DriveApiService {
     provedor: string,
     id: string,
   ): Promise<{ buffer: Buffer; contentType: string; nome: string }> {
+    if (await this.ehDemo(empresaId, provedor)) {
+      // A demo não tem bytes reais: o "original" é o próprio texto. Sem
+      // texto (imagem, vídeo, .xlsx) não há o que baixar — a tela salva só a
+      // nota, como faz quando o download falha.
+      const { arquivo, texto } = this.demo(id);
+      if (arquivo.pasta || !texto) {
+        throw new BadRequestException(
+          'Arquivo de demonstração sem original para baixar.',
+        );
+      }
+      return {
+        buffer: Buffer.from(texto, 'utf8'),
+        contentType:
+          arquivo.extensao === '.csv'
+            ? 'text/csv; charset=utf-8'
+            : 'text/plain; charset=utf-8',
+        nome: this.nomeComExtensao(arquivo),
+      };
+    }
     const token = await this.token(empresaId, provedor);
     const arquivo = this.mapear(await this.metadados(token, id));
     if (arquivo.pasta) {
@@ -332,6 +374,18 @@ export class DriveApiService {
   }
 
   // ---------- infra ----------
+
+  /** Conexão de demonstração (origem "demo"): responde de `drive-demo.ts`. */
+  private async ehDemo(empresaId: string, provedor: string): Promise<boolean> {
+    if (provedor !== 'google-drive') return false;
+    return Boolean(await this.oauth.conexaoDemo(empresaId, provedor));
+  }
+
+  private demo(id: string): { arquivo: DriveArquivo; texto: string | null } {
+    const item = itemDemo(id);
+    if (!item) throw new NotFoundException('Arquivo não encontrado.');
+    return item;
+  }
 
   private token(empresaId: string, provedor: string): Promise<string> {
     if (provedor !== 'google-drive') {

@@ -118,7 +118,66 @@ const MEMBROS: MembroDemo[] = [
     status: "inativo",
     roleCodigo: "viewer",
   },
+
+  // ---- Segunda leva: colaboradores para a organização demo parecer uma
+  // empresa de verdade (várias áreas, cadeias de gestão de 3 níveis, convites
+  // pendentes e um desligado). Mesmos códigos legados de área/cargo que
+  // `seed-demo-estrutura.ts` conhece, para todos ganharem Área e Cargo.
+  ...colaboradores([
+    // Produto
+    ["Larissa Mendes", "produto", "designer", "ativo", "michael.araujo", "viewer"],
+    ["Felipe Andrade", "produto", "analista", "ativo", "renato.costa", "editor"],
+    // Tecnologia
+    ["Ricardo Tavares", "tecnologia", "diretor", "ativo", undefined, "admin"],
+    ["Patrícia Moura", "tecnologia", "gerente", "ativo", "ricardo.tavares", "admin"],
+    ["Gustavo Ferreira", "tecnologia", "engenheiro", "ativo", "patricia.moura", "editor"],
+    ["Juliana Pacheco", "tecnologia", "engenheiro", "ativo", "patricia.moura", "editor"],
+    ["Thiago Barbosa", "tecnologia", "engenheiro", "ativo", "patricia.moura", "editor"],
+    ["Camila Rocha", "tecnologia", "engenheiro", "convite_pendente", "patricia.moura", "viewer"],
+    ["Lucas Vieira", "tecnologia", "estagiario", "ativo", "gustavo.ferreira", "viewer"],
+    // Marketing
+    ["Mariana Duarte", "marketing", "gerente", "ativo", "carolina.silva", "editor"],
+    ["Rafael Monteiro", "marketing", "analista", "ativo", "mariana.duarte", "editor"],
+    ["Isabela Freitas", "marketing", "designer", "ativo", "mariana.duarte", "viewer"],
+    // Pessoas & Cultura
+    ["Fernanda Castro", "pessoas", "diretor", "ativo", undefined, "admin"],
+    ["Bruno Carvalho", "pessoas", "coordenador", "ativo", "fernanda.castro", "editor"],
+    ["Aline Teixeira", "pessoas", "analista", "ativo", "bruno.carvalho", "viewer"],
+    ["Natália Ribeiro", "pessoas", "business-partner", "ativo", "fernanda.castro", "editor"],
+    // Financeiro
+    ["Marcelo Antunes", "financeiro", "gerente", "ativo", "carolina.silva", "admin"],
+    ["Vanessa Lima", "financeiro", "analista", "ativo", "marcelo.antunes", "viewer"],
+    // Operações (área inativa na estrutura demo)
+    ["Diego Martins", "operacoes", "coordenador", "inativo", "marcelo.antunes", "viewer"],
+  ]),
 ];
+
+/**
+ * Atalho para a lista acima: [nome, área, cargo, status, gestor, role]. O
+ * e-mail sai do nome (sem acento, `nome.sobrenome@exemplo.com.br`) e o gestor
+ * é o prefixo do e-mail dele.
+ */
+function colaboradores(
+  linhas: [string, string, string, MembroStatus, string | undefined, string][],
+): MembroDemo[] {
+  const email = (prefixo: string) => `${prefixo}@exemplo.com.br`;
+  return linhas.map(([nome, area, cargo, status, gestor, roleCodigo]) => ({
+    nome,
+    email: email(
+      nome
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .split(" ")
+        .join("."),
+    ),
+    area,
+    cargo,
+    status,
+    gestorEmail: gestor ? email(gestor) : undefined,
+    roleCodigo,
+  }));
+}
 
 function carregarEnvArquivo(nome: string, sobrescrever = false): void {
   const caminho = resolve(__dirname, "..", nome);

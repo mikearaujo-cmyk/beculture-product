@@ -353,6 +353,9 @@ export class OauthProviderService {
     kind: ProviderKind,
   ): Promise<string> {
     const provider = this.requireProvider(providerId, kind);
+    // Conexão de demonstração (seed): não há token nem provedor a consultar.
+    const vinculoDemo = await this.conexaoDemo(empresaId, provider.id);
+    if (vinculoDemo) return vinculoDemo.teamName ?? provider.label;
     const token = await this.getAccessToken(empresaId, provider.id, kind);
     const conta = await provider.fetchAccount(token);
     if (!conta.email) {
@@ -361,6 +364,22 @@ export class OauthProviderService {
       );
     }
     return conta.email;
+  }
+
+  /**
+   * Vínculo gravado com `origem = 'demo'` (ver `prisma/seed-demo-drive.ts`),
+   * ou null. Uma autorização OAuth real sobrescreve a origem para "oauth", e
+   * a conexão deixa de ser demo sozinha.
+   */
+  async conexaoDemo(
+    empresaId: string,
+    connectorId: string,
+  ): Promise<{ teamName: string | null } | null> {
+    const vinculo = await this.prisma.empresaConector.findUnique({
+      where: { empresaId_connectorId: { empresaId, connectorId } },
+      select: { origem: true, teamName: true },
+    });
+    return vinculo?.origem === 'demo' ? { teamName: vinculo.teamName } : null;
   }
 
   // ---------- infra ----------
