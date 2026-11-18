@@ -3,11 +3,11 @@
  *
  * Catálogo ADMINISTRATIVO DEMONSTRATIVO: os modelos BeCulture que aparecem no
  * seletor do Navbar das contas B2C (Automático + estes, sem prioridade entre
- * eles), e a cota de tokens de cada plano.
+ * eles), e a cota fixa de tokens de cada plano (só leitura).
  *
  * Visual: mesma anatomia da tela IA & API — "Chaves de API" (lista cinza, menu
  * ⋮, modal de cadastro) e "Modelos" (uma seção por modalidade). Todo modelo
- * ativo vale para todos os planos; só a cota varia por plano.
+ * ativo vale para todos os planos; só a cota (fixa) varia por plano.
  *
  * As chaves daqui são EXEMPLOS: não são validadas no provedor e não executam
  * chamadas no protótipo — quem responde é a chave que o usuário cadastra em
@@ -131,7 +131,7 @@ export function IaPlataformaSection() {
   return (
     <SectionCard
       titulo="Modelos BeCulture"
-      descricao="Modelos que aparecem no seletor do topo para as contas B2C, e a cota de tokens de cada plano. As chaves daqui são exemplos e não executam chamadas: no protótipo, quem responde é a chave que o usuário cadastra em Configurações → IA & API."
+      descricao="Modelos que aparecem no seletor do topo para as contas B2C, e a cota fixa de tokens de cada plano. As chaves daqui são exemplos e não executam chamadas: no protótipo, quem responde é a chave que o usuário cadastra em Configurações → IA & API."
     >
       {erro ? (
         <div className="bg-error/10 flex items-start gap-2 rounded-xl px-4 py-3">
@@ -1000,14 +1000,12 @@ function MenuAcoes({
 // Cota por plano
 
 /**
- * Cota de tokens por ciclo de cada plano B2C (consumo dos modelos BeCulture).
- * Vazio = sem limite: nenhum valor é assumido. O backend aplica a cota em
- * toda chamada e, ao esgotar, só usa as chaves do usuário com autorização.
+ * Cota de tokens por ciclo de cada plano B2C — fixa, só leitura (definida no
+ * backend em `COTA_POR_PLANO`). O uso é um total somado de todos os modelos
+ * BeCulture; o usuário acompanha a barra em Configurações → IA & API.
  */
 function CotaPorPlano() {
   const [planos, setPlanos] = useState<PlataformaPlano[] | null>(null);
-  const [rascunho, setRascunho] = useState<Record<string, string>>({});
-  const [salvando, setSalvando] = useState<PlanoIa | null>(null);
 
   useEffect(() => {
     backoffice
@@ -1016,47 +1014,16 @@ function CotaPorPlano() {
       .catch((e) => toast.error(mensagemDeErro(e)));
   }, []);
 
-  const valor = (p: PlataformaPlano) =>
-    rascunho[p.plano] ??
-    (p.franquiaGlobalTokens === null ? "" : String(p.franquiaGlobalTokens));
-
-  const salvar = async (p: PlataformaPlano) => {
-    const bruto = valor(p).replace(/\D/g, "");
-    const n = bruto === "" ? null : Number(bruto);
-    if (n !== null && n < 1) {
-      toast.error("Informe um número de tokens maior que zero, ou deixe vazio.");
-      return;
-    }
-    setSalvando(p.plano);
-    try {
-      await backoffice.definirFranquia(p.plano, n);
-      setPlanos(await backoffice.planos());
-      setRascunho((r) => {
-        const { [p.plano]: _, ...resto } = r;
-        void _;
-        return resto;
-      });
-      toast.success(
-        n === null
-          ? `Plano ${ROTULO_PLANO[p.plano]} sem limite de cota.`
-          : `Cota do plano ${ROTULO_PLANO[p.plano]} atualizada.`,
-      );
-    } catch (e) {
-      toast.error(mensagemDeErro(e));
-    } finally {
-      setSalvando(null);
-    }
-  };
-
   return (
     <div className="mt-12">
       <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
         Cota por plano
       </h4>
       <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-        Tokens de modelos BeCulture por ciclo (mês calendário, provisório).
-        Deixe vazio para não limitar. Ao esgotar, o usuário vê as opções de
-        upgrade ou de usar a própria chave — esta, só com autorização dele.
+        Total de tokens dos modelos BeCulture por ciclo (mês calendário,
+        provisório), somando todos os modelos. Fixo por plano. Ao esgotar, o
+        usuário vê as opções de upgrade ou de usar a própria chave — esta, só
+        com autorização dele.
       </p>
       {!planos ? (
         <p className="dark:text-dark-300 mt-4 text-sm text-gray-400">
@@ -1067,32 +1034,16 @@ function CotaPorPlano() {
           {planos.map((p) => (
             <li
               key={p.plano}
-              className="flex flex-wrap items-center gap-3 px-4 py-3"
+              className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
             >
-              <span className="dark:text-dark-100 w-24 text-sm font-medium text-gray-800">
+              <span className="dark:text-dark-100 font-medium text-gray-800">
                 {ROTULO_PLANO[p.plano]}
               </span>
-              <input
-                inputMode="numeric"
-                aria-label={`Cota do plano ${ROTULO_PLANO[p.plano]} em tokens`}
-                placeholder="Sem limite"
-                className={clsx(fieldCls, "max-w-48 flex-1")}
-                value={valor(p)}
-                onChange={(e) =>
-                  setRascunho((r) => ({ ...r, [p.plano]: e.target.value }))
-                }
-              />
-              <span className="dark:text-dark-300 text-xs text-gray-400">
-                tokens/ciclo
+              <span className="dark:text-dark-200 text-gray-600">
+                {p.franquiaGlobalTokens === null
+                  ? "Sem limite"
+                  : `${p.franquiaGlobalTokens.toLocaleString("pt-BR")} tokens/ciclo`}
               </span>
-              <Button
-                className="ms-auto h-8 text-xs"
-                variant="outlined"
-                disabled={salvando === p.plano || rascunho[p.plano] === undefined}
-                onClick={() => void salvar(p)}
-              >
-                {salvando === p.plano ? "Salvando…" : "Salvar"}
-              </Button>
             </li>
           ))}
         </ul>

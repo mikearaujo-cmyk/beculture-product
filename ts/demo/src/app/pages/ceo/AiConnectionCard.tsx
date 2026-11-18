@@ -73,6 +73,7 @@ import {
   ROTULO_ORIGEM,
   ROTULO_PLANO,
   useResumoContaIa,
+  type CotaB2c,
   type OrigemCredencial,
   type ResumoContaIa,
 } from "@/services/api/modalidade";
@@ -330,6 +331,11 @@ function ChavesProprias({
 }) {
   const podeGerenciar = resumo ? resumo.podeGerenciarChaves : true;
   const origem: OrigemCredencial = resumo?.origemCredenciais ?? "organizacao";
+  // B2C (Pessoal): o usuário só cadastra chaves e adiciona modelos — não há
+  // seleção de prioridade. A fila segue a ordem em que os modelos entraram.
+  const comPrioridade = !(
+    resumo?.modalidadeComercial === "b2c" || origem === "usuario"
+  );
   // Começa no espelho local do catálogo (ver `PROVEDORES_PADRAO`): o select de
   // provedor já nasce preenchido e a resposta do servidor só o substitui.
   const [providers, setProviders] =
@@ -382,16 +388,6 @@ function ChavesProprias({
   return (
     <div>
       {exibir === "tudo" && <OrigemCredenciais origem={origem} />}
-      {resumo?.modalidade === "beculture" && (
-        <NotaPrototipo className="mb-6">
-          os modelos BeCulture do seletor do topo são exemplos. As respostas
-          reais — inclusive quando você escolhe um modelo BeCulture — usam as
-          chaves cadastradas aqui, na ordem de prioridade abaixo
-          {resumo.execucao === "indisponivel" &&
-            ". Cadastre uma chave e habilite um modelo de texto para o assistente responder"}
-          .
-        </NotaPrototipo>
-      )}
       {exibir === "tudo" &&
         resumo &&
         resumo.prontidao !== "pronta" &&
@@ -422,13 +418,14 @@ function ChavesProprias({
       {exibir !== "chaves" && (
         <div className={exibir === "modelos" ? "" : "mt-12"}>
           <h4 className="dark:text-dark-100 text-sm font-semibold text-gray-800">
-            Modelos e Prioridades
+            {comPrioridade ? "Modelos e Prioridades" : "Modelos"}
           </h4>
           {/* Descrição fixa, como em "Chaves de API". A linha de "comece por aqui"
             só entra sem chave cadastrada, quando as modalidades ficam vazias. */}
           <p className="dark:text-dark-300 mt-1 text-sm text-gray-500">
-            Escolha quais modelos atendem cada modalidade e em que ordem devem
-            ser usados.
+            {comPrioridade
+              ? "Escolha quais modelos atendem cada modalidade e em que ordem devem ser usados."
+              : "Escolha quais modelos atendem cada modalidade."}
             {creds.length === 0 &&
               " Adicione uma chave de API para começar a configurar seus modelos."}
           </p>
@@ -452,6 +449,7 @@ function ChavesProprias({
                   providers={providers}
                   creds={creds}
                   semChaves={creds.length === 0}
+                  ordenavel={comPrioridade}
                   onModelCount={(credentialId, delta) => {
                     setCreds((prev) =>
                       prev.map((c) =>
@@ -470,7 +468,7 @@ function ChavesProprias({
             ))}
           </div>
         </div>
-      )}{" "}
+      )}
     </div>
   );
 }
@@ -522,6 +520,72 @@ export function BadgeOrigem({ origem }: { origem: OrigemCredencial }) {
 
 function formatarTokens(n: number): string {
   return n.toLocaleString("pt-BR");
+}
+
+/**
+ * Uso dos modelos BeCulture no ciclo: um total do plano (somando todos os
+ * modelos), em barra. Só para contas B2C no modo BeCulture.
+ */
+function UsoBeCulture({
+  resumo,
+  cota,
+}: {
+  resumo: ResumoContaIa;
+  cota: CotaB2c;
+}) {
+  const plano = resumo.planoIa ? ROTULO_PLANO[resumo.planoIa] : null;
+  const renova = new Date(cota.renovaEm).toLocaleDateString("pt-BR");
+  const pct =
+    cota.limite !== null && cota.limite > 0
+      ? Math.min(100, Math.round((cota.total / cota.limite) * 100))
+      : null;
+  return (
+    <div className="dark:border-dark-500 rounded-xl border border-gray-200 px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
+          Uso dos modelos BeCulture
+          {plano && (
+            <span className="dark:text-dark-300 font-normal text-gray-500">
+              {" "}
+              · plano {plano}
+            </span>
+          )}
+        </p>
+        {cota.esgotada ? (
+          <span className="bg-warning/10 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
+            Cota esgotada
+          </span>
+        ) : (
+          <span className="dark:text-dark-300 text-xs text-gray-400">
+            Renova em {renova}
+          </span>
+        )}
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Uso da cota BeCulture"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? undefined}
+        className="dark:bg-dark-500 mt-2 h-2 overflow-hidden rounded-full bg-gray-100"
+      >
+        <div
+          className={clsx(
+            "h-full rounded-full",
+            cota.esgotada ? "bg-warning" : "bg-primary-500",
+          )}
+          style={{ width: `${pct ?? 0}%` }}
+        />
+      </div>
+      <p className="dark:text-dark-300 mt-1.5 text-xs text-gray-500">
+        {formatarTokens(cota.total)}
+        {cota.limite !== null
+          ? ` de ${formatarTokens(cota.limite)} tokens (${pct}%)`
+          : " tokens · sem limite"}
+        . Uso nas suas próprias chaves não conta aqui.
+      </p>
+    </div>
+  );
 }
 
 function KeysSection({
@@ -1172,12 +1236,15 @@ function ModalityPanel({
   providers,
   creds,
   semChaves,
+  ordenavel,
   onModelCount,
 }: {
   modality: Modality;
   providers: CatalogProvider[];
   creds: AiCredential[];
   semChaves: boolean;
+  /** Falso no B2C: lista simples, sem arrastar nem posição na fila. */
+  ordenavel: boolean;
   onModelCount: (credentialId: string, delta: number) => void;
 }) {
   const { adapter } = modality;
@@ -1369,13 +1436,16 @@ function ModalityPanel({
                     subtitulo={`${rotuloCredencial(providers, c)} · ••••${c.keyLast4}`}
                     onRemove={onRemove}
                     onMover={mover}
+                    ordenavel={ordenavel}
                   />
                 ))}
               </ul>
-              <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
-                Arraste para definir a ordem. Se um modelo falhar, o próximo
-                assume automaticamente.
-              </p>
+              {ordenavel && (
+                <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
+                  Arraste para definir a ordem. Se um modelo falhar, o próximo
+                  assume automaticamente.
+                </p>
+              )}
             </>
           )}
 
@@ -1565,6 +1635,7 @@ function ModelRow({
   subtitulo,
   onRemove,
   onMover,
+  ordenavel,
 }: {
   conn: QueueItem;
   index: number;
@@ -1573,6 +1644,7 @@ function ModelRow({
   subtitulo: string;
   onRemove: (conn: QueueItem) => void;
   onMover: (de: number, para: number) => void;
+  ordenavel: boolean;
 }) {
   const rowRef = useRef<HTMLLIElement>(null);
   const handleRef = useRef<HTMLButtonElement>(null);
@@ -1582,7 +1654,7 @@ function ModelRow({
   useEffect(() => {
     const element = rowRef.current;
     const dragHandle = handleRef.current;
-    if (!element || !dragHandle) return;
+    if (!ordenavel || !element || !dragHandle) return;
 
     const data: DragData = {
       tipo: DRAG_TIPO,
@@ -1611,7 +1683,7 @@ function ModelRow({
         onDrop: () => setEdge(null),
       }),
     );
-  }, [conn.id, modalityId]);
+  }, [conn.id, modalityId, ordenavel]);
 
   return (
     <li
@@ -1621,35 +1693,39 @@ function ModelRow({
         arrastando && "opacity-40",
       )}
     >
-      <button
-        ref={handleRef}
-        type="button"
-        aria-label={`Reordenar ${titulo} (use Alt e as setas para mover)`}
-        onKeyDown={(e) => {
-          if (!e.altKey) return;
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            onMover(index, index - 1);
-          } else if (e.key === "ArrowDown") {
-            e.preventDefault();
-            onMover(index, index + 1);
-          }
-        }}
-        className="dark:text-dark-300 dark:hover:text-dark-100 -m-1 shrink-0 cursor-grab p-1 text-gray-400 hover:text-gray-600 active:cursor-grabbing"
-      >
-        <Bars2Icon className="size-4" />
-      </button>
+      {ordenavel && (
+        <button
+          ref={handleRef}
+          type="button"
+          aria-label={`Reordenar ${titulo} (use Alt e as setas para mover)`}
+          onKeyDown={(e) => {
+            if (!e.altKey) return;
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              onMover(index, index - 1);
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              onMover(index, index + 1);
+            }
+          }}
+          className="dark:text-dark-300 dark:hover:text-dark-100 -m-1 shrink-0 cursor-grab p-1 text-gray-400 hover:text-gray-600 active:cursor-grabbing"
+        >
+          <Bars2Icon className="size-4" />
+        </button>
+      )}
 
-      <span
-        className={clsx(
-          "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-          index === 0
-            ? "bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
-            : "dark:bg-dark-500 dark:text-dark-200 bg-gray-200 text-gray-600",
-        )}
-      >
-        {index === 0 ? "1 · Principal" : index + 1}
-      </span>
+      {ordenavel && (
+        <span
+          className={clsx(
+            "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+            index === 0
+              ? "bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
+              : "dark:bg-dark-500 dark:text-dark-200 bg-gray-200 text-gray-600",
+          )}
+        >
+          {index === 0 ? "1 · Principal" : index + 1}
+        </span>
+      )}
 
       <div className="min-w-0 flex-1 text-sm">
         <span className="dark:text-dark-100 font-medium text-gray-700">
@@ -1676,30 +1752,10 @@ function ModelRow({
   );
 }
 
-/** Aviso de comportamento exclusivo do protótipo (não é regra do produto). */
-function NotaPrototipo({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <p
-      className={clsx(
-        "dark:border-dark-500 dark:text-dark-300 mt-3 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500",
-        className,
-      )}
-    >
-      <span className="font-semibold">Apenas no protótipo:</span> {children}
-    </p>
-  );
-}
-
 /**
  * Cota do plano B2C — container próprio, abaixo do "IA & API" em
- * Configurações. Mostra o consumo dos modelos BeCulture no ciclo e a
- * autorização EXPLÍCITA para usar as chaves próprias quando a cota esgotar
+ * Configurações. Mostra o uso total dos modelos BeCulture (`UsoBeCulture`) e
+ * a autorização EXPLÍCITA para usar as chaves próprias quando a cota esgotar
  * (sem ela, a plataforma nunca usa as chaves próprias no lugar da cota).
  */
 export function FranquiaPlanoSection() {
@@ -1717,10 +1773,6 @@ export function FranquiaPlanoSection() {
   const plano = resumo.planoIa ? ROTULO_PLANO[resumo.planoIa] : null;
   const renova = new Date(cota.renovaEm).toLocaleDateString("pt-BR");
   const autorizado = !!resumo.byokAposCota?.autorizado;
-  const pct =
-    cota.limite !== null && cota.limite > 0
-      ? Math.min(100, Math.round((cota.total / cota.limite) * 100))
-      : null;
 
   const alternar = async (ligar: boolean) => {
     setSalvando(true);
@@ -1743,47 +1795,9 @@ export function FranquiaPlanoSection() {
   return (
     <SectionCard
       titulo="Cota do plano"
-      descricao={`Uso dos modelos BeCulture incluído no plano${plano ? ` ${plano}` : ""} neste ciclo.`}
+      descricao={`Uso dos modelos BeCulture incluído no plano${plano ? ` ${plano}` : ""} neste ciclo (mês calendário, provisório).`}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="dark:text-dark-100 text-sm font-medium text-gray-800">
-          {formatarTokens(cota.total)} tokens usados
-          {cota.limite !== null && (
-            <span className="dark:text-dark-300 font-normal text-gray-500">
-              {" "}
-              de {formatarTokens(cota.limite)}
-            </span>
-          )}
-        </p>
-        {cota.esgotada ? (
-          <span className="bg-warning/10 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
-            Cota esgotada
-          </span>
-        ) : (
-          <span className="dark:text-dark-300 text-xs text-gray-400">
-            Renova em {renova}
-          </span>
-        )}
-      </div>
-      {pct !== null && (
-        <div className="dark:bg-dark-500 mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
-          <div
-            className={clsx(
-              "h-full rounded-full",
-              cota.esgotada ? "bg-warning" : "bg-primary-500",
-            )}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      )}
-      <p className="dark:text-dark-300 mt-2 text-xs text-gray-400">
-        {cota.limite === null
-          ? "Este plano ainda não tem cota definida: o uso não é limitado. "
-          : ""}
-        Ciclo provisório (mês calendário). Uso nas suas próprias chaves não
-        conta na cota.
-      </p>
-
+      <UsoBeCulture resumo={resumo} cota={cota} />
       <div className="dark:border-dark-500 mt-4 border-t border-gray-100">
         <ToggleRow
           nome="Usar minhas chaves quando a cota acabar"

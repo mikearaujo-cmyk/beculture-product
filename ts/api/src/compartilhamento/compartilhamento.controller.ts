@@ -13,13 +13,11 @@ import {
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { CurrentUser } from '@/common/current-user.decorator';
 import { RepositorioAtual } from '@/common/repositorio-atual.decorator';
-import { PermissoesGuard, RequerPermissao } from '@/acesso/permissoes.guard';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 import { CompartilhamentoService } from './compartilhamento.service';
 import {
   AlterarCompartilhamentoDto,
   CriarCompartilhamentoDto,
-  PoliticaDto,
   SincronizarTagDto,
 } from './dto/compartilhamento.dto';
 
@@ -145,17 +143,6 @@ export class CompartilhamentoController {
       this.servico.capacidadesOrg(user),
     ]);
     return { politica, capacidades };
-  }
-
-  /** PUT /compartilhamentos/politica → exige `compartilhamento.politicas`. */
-  @Put('politica')
-  @UseGuards(PermissoesGuard)
-  @RequerPermissao('compartilhamento.politicas')
-  async salvarPolitica(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: PoliticaDto,
-  ) {
-    return { politica: await this.servico.salvarPolitica(user, dto) };
   }
 
   /** PATCH /compartilhamentos/:id → permissões e expiração. */

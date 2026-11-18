@@ -9,7 +9,7 @@ import {
   Post,
   Put,
   UseGuards,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   IsArray,
   IsBoolean,
@@ -21,15 +21,15 @@ import {
   Min,
   MinLength,
   ValidateIf,
-} from 'class-validator';
-import type { PlanoIaB2c } from '@prisma/client';
-import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
-import { CurrentUser } from '@/common/current-user.decorator';
-import type { AuthenticatedUser } from '@/auth/jwt.strategy';
-import { PlataformaIaService, PLANOS_IA } from './plataforma.service';
-import { ContaIaService } from './conta-ia.service';
-import { BackofficeGuard } from './backoffice.guard';
-import { UNIFIED_CATALOG, type AiModality } from './catalogo';
+} from "class-validator";
+import type { PlanoIaB2c } from "@prisma/client";
+import { JwtAuthGuard } from "@/auth/jwt-auth.guard";
+import { CurrentUser } from "@/common/current-user.decorator";
+import type { AuthenticatedUser } from "@/auth/jwt.strategy";
+import { PlataformaIaService, PLANOS_IA } from "./plataforma.service";
+import { ContaIaService } from "./conta-ia.service";
+import { BackofficeGuard } from "./backoffice.guard";
+import { UNIFIED_CATALOG, type AiModality } from "./catalogo";
 
 class CriarCredencialDto {
   /** Id do catálogo. Omitido quando o provedor é livre (`nomeProvedor`). */
@@ -44,7 +44,7 @@ class CriarCredencialDto {
   nomeProvedor?: string;
 
   @IsString()
-  @MinLength(8, { message: 'A chave de API parece curta demais.' })
+  @MinLength(8, { message: "A chave de API parece curta demais." })
   apiKey!: string;
 
   @IsOptional()
@@ -78,7 +78,7 @@ class CriarModeloDto {
   @IsString()
   credencialId!: string;
 
-  @IsIn(['text', 'image', 'video'])
+  @IsIn(["text", "image", "video"])
   kind!: AiModality;
 
   @IsString()
@@ -115,7 +115,7 @@ class AtualizarModeloDto {
   model?: string;
 
   @IsOptional()
-  @IsIn(['text', 'image', 'video'])
+  @IsIn(["text", "image", "video"])
   kind?: AiModality;
 }
 
@@ -130,21 +130,9 @@ class ModeloPlanoDto {
   limiteTokensCiclo?: number | null;
 }
 
-class FranquiaDto {
-  @ValidateIf((_, v) => v !== null)
-  @IsInt()
-  @Min(1)
-  franquiaGlobalTokens!: number | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(280)
-  observacao?: string;
-}
-
 class MigrarDto {
-  @IsIn(['beculture', 'organizacao'])
-  modalidadeIa!: 'beculture' | 'organizacao';
+  @IsIn(["beculture", "organizacao"])
+  modalidadeIa!: "beculture" | "organizacao";
 
   @IsOptional()
   @IsIn(PLANOS_IA)
@@ -157,20 +145,20 @@ class MigrarDto {
 
 function parsePlano(plano: string): PlanoIaB2c {
   if ((PLANOS_IA as string[]).includes(plano)) return plano as PlanoIaB2c;
-  throw new BadRequestException('Plano inválido (use essencial ou pro).');
+  throw new BadRequestException("Plano inválido (use essencial ou pro).");
 }
 
 /**
  * Backoffice do PROTÓTIPO, com dois contextos separados:
  *   - Modelos BeCulture: catálogo demonstrativo (`plataforma_*`) que alimenta
- *     o seletor do Navbar do B2C, e a cota por plano (tokens por ciclo)
+ *     o seletor do Navbar do B2C (a cota por plano é fixa, em `COTA_POR_PLANO`)
  *   - Conta em demonstração: cenário da conta logada
  * Nenhum deles se mistura com as chaves BYOK/B2B (`ai_credentials`).
  *
  * Acesso: `BackofficeGuard` (hoje, qualquer conta autenticada — ver o guard).
  * RISCO CONHECIDO no deploy público: qualquer conta altera estas chaves.
  */
-@Controller('backoffice')
+@Controller("backoffice")
 @UseGuards(JwtAuthGuard, BackofficeGuard)
 export class BackofficeController {
   constructor(
@@ -180,99 +168,94 @@ export class BackofficeController {
 
   // ---------- Modelos BeCulture (catálogo demonstrativo) ----------
 
-  @Get('status')
+  @Get("status")
   status() {
     return this.plataforma.status();
   }
 
-  @Get('ia/catalogo')
+  @Get("ia/catalogo")
   catalogo() {
     return UNIFIED_CATALOG;
   }
 
   // ---------- Credenciais da plataforma ----------
 
-  @Get('ia/credenciais')
+  @Get("ia/credenciais")
   credenciais() {
     return this.plataforma.listarCredenciais();
   }
 
-  @Post('ia/credenciais')
+  @Post("ia/credenciais")
   criarCredencial(@Body() dto: CriarCredencialDto) {
     return this.plataforma.criarCredencial(dto);
   }
 
-  @Patch('ia/credenciais/:id')
+  @Patch("ia/credenciais/:id")
   atualizarCredencial(
-    @Param('id') id: string,
+    @Param("id") id: string,
     @Body() dto: AtualizarCredencialDto,
   ) {
     return this.plataforma.atualizarCredencial(id, dto);
   }
 
-  @Post('ia/credenciais/:id/validar')
-  revalidarCredencial(@Param('id') id: string) {
+  @Post("ia/credenciais/:id/validar")
+  revalidarCredencial(@Param("id") id: string) {
     return this.plataforma.revalidarCredencial(id);
   }
 
-  @Delete('ia/credenciais/:id')
-  async removerCredencial(@Param('id') id: string) {
+  @Delete("ia/credenciais/:id")
+  async removerCredencial(@Param("id") id: string) {
     await this.plataforma.removerCredencial(id);
     return { ok: true };
   }
 
   // ---------- Modelos da plataforma ----------
 
-  @Get('ia/modelos')
+  @Get("ia/modelos")
   modelos() {
     return this.plataforma.listarModelos();
   }
 
-  @Post('ia/modelos')
+  @Post("ia/modelos")
   criarModelo(@Body() dto: CriarModeloDto) {
     return this.plataforma.criarModelo(dto);
   }
 
-  @Patch('ia/modelos/:id')
-  atualizarModelo(@Param('id') id: string, @Body() dto: AtualizarModeloDto) {
+  @Patch("ia/modelos/:id")
+  atualizarModelo(@Param("id") id: string, @Body() dto: AtualizarModeloDto) {
     return this.plataforma.atualizarModelo(id, dto);
   }
 
-  @Delete('ia/modelos/:id')
-  async removerModelo(@Param('id') id: string) {
+  @Delete("ia/modelos/:id")
+  async removerModelo(@Param("id") id: string) {
     await this.plataforma.removerModelo(id);
     return { ok: true };
   }
 
-  @Put('ia/modelos/:id/planos/:plano')
+  @Put("ia/modelos/:id/planos/:plano")
   definirPlano(
-    @Param('id') id: string,
-    @Param('plano') plano: string,
+    @Param("id") id: string,
+    @Param("plano") plano: string,
     @Body() dto: ModeloPlanoDto,
   ) {
     return this.plataforma.definirPlano(id, parsePlano(plano), dto);
   }
 
-  // ---------- Cota por plano (tokens por ciclo; vazio = sem limite) ----------
+  // ---------- Cota por plano (fixa, só leitura) ----------
 
-  @Get('ia/planos')
+  @Get("ia/planos")
   planos() {
     return this.plataforma.listarPlanos();
   }
 
-  @Put('ia/planos/:plano')
-  definirFranquia(@Param('plano') plano: string, @Body() dto: FranquiaDto) {
-    return this.plataforma.definirFranquia(parsePlano(plano), dto);
-  }
-
   // ---------- Conta em demonstração ----------
 
-  @Get('conta-demo')
+  @Get("conta-demo")
   contaDemo(@CurrentUser() user: AuthenticatedUser) {
     return this.contaIa.resumo(user.empresaId, user.id);
   }
 
-  @Put('conta-demo/modalidade')
+  @Put("conta-demo/modalidade")
   migrar(@CurrentUser() user: AuthenticatedUser, @Body() dto: MigrarDto) {
     return this.contaIa.migrar(
       user.empresaId,

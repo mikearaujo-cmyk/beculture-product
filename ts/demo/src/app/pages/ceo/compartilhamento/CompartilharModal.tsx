@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import clsx from "clsx";
 import {
-  BuildingOffice2Icon,
   CheckIcon,
+  DocumentTextIcon,
+  TagIcon,
   MagnifyingGlassIcon,
   ShareIcon,
   UserGroupIcon,
@@ -37,7 +38,9 @@ import {
 // (política da organização sem IA; quem só administra não concede o que não
 // tem) e aplica a expiração que a política exigir.
 //
-// Os atalhos da hierarquia (meu gestor, minha equipe…) só PREENCHEM a seleção.
+// Destinatários: só pessoas específicas da mesma organização (uma ou várias).
+// Não há compartilhamento com equipe, área ou organização inteira.
+// Os atalhos da hierarquia (meu gestor, minha liderança) só PREENCHEM a seleção.
 // Nada é concedido sem passar pelo resumo e pela confirmação.
 // ----------------------------------------------------------------------
 
@@ -118,20 +121,8 @@ export function CompartilharModal({
     () => new Map((dados?.membros ?? []).map((m) => [m.id, m])),
     [dados],
   );
-  const areaPorId = useMemo(
-    () => new Map((dados?.areas ?? []).map((a) => [a.id, a])),
-    [dados],
-  );
-
-  const permitido = (tipo: Destinatario["tipo"]): boolean => {
-    if (!politica) return false;
-    return (
-      (tipo === "membro" && politica.permitirMembro) ||
-      (tipo === "equipe" && politica.permitirEquipe) ||
-      (tipo === "area" && politica.permitirArea) ||
-      (tipo === "empresa" && politica.permitirEmpresa)
-    );
-  };
+  // Só pessoas específicas da mesma organização (a API também força isso).
+  const podeCompartilhar = !!politica?.permitirMembro;
 
   const adicionar = (...ds: Selecionado[]) => {
     setSelecionados((atuais) => {
@@ -142,13 +133,15 @@ export function CompartilharModal({
   const remover = (d: Destinatario) =>
     setSelecionados((atuais) => atuais.filter((s) => chave(s) !== chave(d)));
 
-  const temGrupo = selecionados.some((s) => s.tipo !== "membro");
   const s = dados?.sugestoes;
 
-  const atalhos: { rotulo: string; icone: typeof UserIcon; itens: Selecionado[] }[] =
-    [];
-  if (s && dados) {
-    if (s.gestorDireto && membroPorId.has(s.gestorDireto) && permitido("membro"))
+  const atalhos: {
+    rotulo: string;
+    icone: typeof UserIcon;
+    itens: Selecionado[];
+  }[] = [];
+  if (s && dados && podeCompartilhar) {
+    if (s.gestorDireto && membroPorId.has(s.gestorDireto))
       atalhos.push({
         rotulo: "Meu gestor direto",
         icone: UserIcon,
@@ -161,7 +154,7 @@ export function CompartilharModal({
         ],
       });
     const lideranca = s.lideranca.filter((id) => membroPorId.has(id));
-    if (lideranca.length > 1 && permitido("membro"))
+    if (lideranca.length > 1)
       atalhos.push({
         rotulo: "Minha liderança",
         icone: UserGroupIcon,
@@ -171,82 +164,55 @@ export function CompartilharModal({
           rotulo: membroPorId.get(id)!.nome,
         })),
       });
-    if (s.minhaEquipe && permitido("equipe"))
-      atalhos.push({
-        rotulo: "Minha equipe",
-        icone: UserGroupIcon,
-        itens: [
-          {
-            tipo: "equipe",
-            id: s.minhaEquipe,
-            rotulo: `Equipe de ${membroPorId.get(s.minhaEquipe)?.nome ?? "meu gestor"}`,
-          },
-        ],
-      });
-    if (s.meusLiderados && permitido("equipe"))
-      atalhos.push({
-        rotulo: "Meus liderados",
-        icone: UserGroupIcon,
-        itens: [
-          { tipo: "equipe", id: s.meusLiderados, rotulo: "Meus liderados diretos" },
-        ],
-      });
-    if (s.minhaArea && areaPorId.has(s.minhaArea) && permitido("area"))
-      atalhos.push({
-        rotulo: "Minha área",
-        icone: BuildingOffice2Icon,
-        itens: [
-          {
-            tipo: "area",
-            id: s.minhaArea,
-            rotulo: `Área ${areaPorId.get(s.minhaArea)!.nome}`,
-          },
-        ],
-      });
-    if (permitido("empresa"))
-      atalhos.push({
-        rotulo: "Toda a organização",
-        icone: BuildingOffice2Icon,
-        itens: [{ tipo: "empresa", rotulo: "Toda a organização" }],
-      });
   }
 
-  const q = busca.trim().toLowerCase();
-  const resultados = q
-    ? [
-        ...(permitido("membro") ? dados?.membros ?? [] : [])
-          .filter((m) => m.nome.toLowerCase().includes(q))
-          .map((m) => ({
+  // Busca só pessoas, filtrando a cada letra digitada: entra quem tem o nome
+  // (ou algum sobrenome) começando pelo texto, sem diferenciar acento nem
+  // maiúscula. Quem começa pelo primeiro nome vem antes. Quem já foi escolhido
+  // sai da lista, para facilitar selecionar várias pessoas seguidas.
+  const jaSelecionados = new Set(selecionados.map(chave));
+  const q = normalizar(busca.trim());
+  const resultados =
+    q && podeCompartilhar
+      ? (dados?.membros ?? [])
+          .filter((m) => !jaSelecionados.has(`membro:${m.id}`))
+          .map((m) => {
+            const nome = normalizar(m.nome);
+            const rank = nome.startsWith(q)
+              ? 0
+              : nome.split(/\s+/).some((p) => p.startsWith(q))
+                ? 1
+                : -1;
+            return { m, rank };
+          })
+          .filter((r) => r.rank >= 0)
+          .sort((a, b) => a.rank - b.rank || a.m.nome.localeCompare(b.m.nome))
+          .map(({ m }) => ({
             tipo: "membro" as const,
             id: m.id,
             rotulo: m.nome,
-            detalhe: [m.cargo, m.area, m.convidado ? "Convidado" : null]
+            detalhe: [
+              m.cargo,
+              m.area,
+              m.convidado ? "Convidado" : null,
+              m.semConta ? "Ainda não entrou na plataforma" : null,
+            ]
               .filter(Boolean)
               .join(" · "),
-          })),
-        ...(permitido("area") ? dados?.areas ?? [] : [])
-          .filter((a) => a.nome.toLowerCase().includes(q))
-          .map((a) => ({
-            tipo: "area" as const,
-            id: a.id,
-            rotulo: `Área ${a.nome}`,
-            detalhe: `${a.pessoas} ${a.pessoas === 1 ? "pessoa" : "pessoas"}`,
-          })),
-      ].slice(0, 8)
-    : [];
+          }))
+          .slice(0, 8)
+      : [];
+  const [destaque, setDestaque] = useState(0);
+  const escolher = (r: (typeof resultados)[number]) => {
+    adicionar({ tipo: r.tipo, id: r.id, rotulo: r.rotulo });
+    setBusca("");
+    setDestaque(0);
+  };
 
   const podeAvancar =
-    selecionados.length > 0 &&
-    (!ehTag || tagSincronizada !== null);
+    selecionados.length > 0 && (!ehTag || tagSincronizada !== null);
   const qtdArquivosTag = alvo && "tag" in alvo ? alvo.tag.paths.length : 0;
   const maxDias = politica?.expiracaoMaximaDias ?? null;
-
-  /** Permissões que valem: as três, menos o que a política ou o papel barrar. */
-  const permissoes = [
-    "Visualizar",
-    politica?.permitirUsoIa !== false ? "Usar como contexto da IA" : null,
-    ehDono ? "Administrar compartilhamento" : null,
-  ].filter(Boolean);
 
   /** Garante que o servidor tem a versão atual da nota antes de concedê-la. */
   const sincronizarNota = async (path: string) => {
@@ -302,8 +268,16 @@ export function CompartilharModal({
       show={!!alvo}
       close={fechar}
       icon={ShareIcon}
-      title={passo === "resumo" ? "Confirme o compartilhamento" : "Compartilhar"}
-      description={alvo?.titulo ?? ""}
+      title={
+        passo === "resumo" ? "Confirme o compartilhamento" : "Compartilhar"
+      }
+      description={
+        passo === "resumo"
+          ? "Revise os detalhes antes de conceder o acesso."
+          : `Escolha pessoas da sua organização para receber ${
+              ehTag ? "esta tag" : "esta nota"
+            }.`
+      }
       largura="max-w-xl"
       footer={
         passo === "escolher" ? (
@@ -354,6 +328,18 @@ export function CompartilharModal({
 
       {dados && politica && passo === "escolher" && (
         <div className="flex flex-col gap-5">
+          {alvo && (
+            <div className="dark:bg-dark-700 dark:text-dark-200 text-xs-plus flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-gray-700">
+              {ehTag ? (
+                <TagIcon className="size-4 shrink-0 text-gray-400" />
+              ) : (
+                <DocumentTextIcon className="size-4 shrink-0 text-gray-400" />
+              )}
+              <span className="truncate">
+                {"tag" in alvo ? `#${alvo.tag.rotulo}` : alvo.titulo}
+              </span>
+            </div>
+          )}
           {ehTag && (
             <section>
               <Titulo>Arquivos da tag</Titulo>
@@ -396,27 +382,71 @@ export function CompartilharModal({
               <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400" />
               <input
                 value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar pessoa ou área…"
+                onChange={(e) => {
+                  setBusca(e.target.value);
+                  setDestaque(0);
+                }}
+                onKeyDown={(e) => {
+                  if (!resultados.length) return;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setDestaque((i) => (i + 1) % resultados.length);
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setDestaque(
+                      (i) => (i - 1 + resultados.length) % resultados.length,
+                    );
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    escolher(
+                      resultados[Math.min(destaque, resultados.length - 1)],
+                    );
+                  }
+                }}
+                placeholder="Digite o nome de uma pessoa…"
+                disabled={!podeCompartilhar}
+                role="combobox"
+                aria-expanded={!!q}
+                aria-autocomplete="list"
                 className="form-input dark:bg-dark-700 dark:border-dark-450 dark:text-dark-100 focus:border-primary-500 h-9 w-full rounded-lg border border-gray-300 bg-white pr-3 pl-9 text-sm focus:ring-0"
               />
-              {resultados.length > 0 && (
-                <ul className="dark:bg-dark-700 dark:border-dark-500 absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                  {resultados.map((r) => (
-                    <li key={`${r.tipo}:${r.id}`}>
+              {q && podeCompartilhar && (
+                <ul
+                  role="listbox"
+                  className="dark:bg-dark-700 dark:border-dark-500 absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                >
+                  {resultados.length === 0 && (
+                    <li className="dark:text-dark-300 px-3 py-2 text-sm text-gray-500">
+                      Nenhuma pessoa da organização com esse nome.
+                    </li>
+                  )}
+                  {resultados.map((r, i) => (
+                    <li
+                      key={`${r.tipo}:${r.id}`}
+                      role="option"
+                      aria-selected={i === destaque}
+                    >
                       <button
                         type="button"
-                        onClick={() => {
-                          adicionar({ tipo: r.tipo, id: r.id, rotulo: r.rotulo });
-                          setBusca("");
-                        }}
-                        className="dark:hover:bg-dark-600 flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm hover:bg-gray-50"
+                        onMouseEnter={() => setDestaque(i)}
+                        onClick={() => escolher(r)}
+                        className={clsx(
+                          "flex w-full items-center gap-3 px-3 py-2 text-start text-sm",
+                          i === destaque
+                            ? "dark:bg-dark-600 bg-gray-100"
+                            : "dark:hover:bg-dark-600 hover:bg-gray-50",
+                        )}
                       >
-                        <span className="dark:text-dark-100 truncate text-gray-800">
-                          {r.rotulo}
-                        </span>
-                        <span className="dark:text-dark-300 text-tiny shrink-0 text-gray-400">
-                          {r.detalhe}
+                        <Iniciais nome={r.rotulo} />
+                        <span className="min-w-0 flex-1">
+                          <span className="dark:text-dark-100 block truncate text-gray-800">
+                            {r.rotulo}
+                          </span>
+                          {r.detalhe && (
+                            <span className="dark:text-dark-300 text-tiny block truncate text-gray-400">
+                              {r.detalhe}
+                            </span>
+                          )}
                         </span>
                       </button>
                     </li>
@@ -425,32 +455,39 @@ export function CompartilharModal({
               )}
             </div>
             {selecionados.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {selecionados.map((d) => (
-                  <span
-                    key={chave(d)}
-                    className="bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300 flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2.5 text-xs"
-                  >
-                    {d.rotulo}
-                    <button
-                      type="button"
-                      aria-label={`Remover ${d.rotulo}`}
-                      onClick={() => remover(d)}
-                      className="rounded-full p-0.5 hover:bg-black/5"
+              <div className="mt-3">
+                <p className="dark:text-dark-300 text-tiny mb-1.5 text-gray-500">
+                  {selecionados.length}{" "}
+                  {selecionados.length === 1
+                    ? "pessoa selecionada"
+                    : "pessoas selecionadas"}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selecionados.map((d) => (
+                    <span
+                      key={chave(d)}
+                      className="bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300 flex items-center gap-1.5 rounded-full py-0.5 pr-1 pl-0.5 text-xs"
                     >
-                      <XMarkIcon className="size-3.5" />
-                    </button>
-                  </span>
-                ))}
+                      <Iniciais nome={d.rotulo} pequeno />
+                      {d.rotulo}
+                      <button
+                        type="button"
+                        aria-label={`Remover ${d.rotulo}`}
+                        onClick={() => remover(d)}
+                        className="rounded-full p-0.5 hover:bg-black/5"
+                      >
+                        <XMarkIcon className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </section>
 
-          {/* Abrangência — sempre fixa; só avisa quando há grupo */}
-          {temGrupo && (
+          {!podeCompartilhar && (
             <p className="dark:text-dark-300 text-xs text-gray-500">
-              Grupos: recebe só quem faz parte agora. Quem entrar no grupo
-              depois não terá acesso.
+              A política da organização não permite compartilhar com pessoas.
             </p>
           )}
         </div>
@@ -471,17 +508,13 @@ export function CompartilharModal({
             </Resumo>
           )}
           <Resumo rotulo="Proprietário">
-            {ehDono ? "Você" : "Outro membro (você administra o compartilhamento)"}
+            {ehDono
+              ? "Você"
+              : "Outro membro (você administra o compartilhamento)"}
           </Resumo>
           <Resumo rotulo="Destinatários">
             {selecionados.map((d) => d.rotulo).join(", ")}
           </Resumo>
-          {temGrupo && (
-            <Resumo rotulo="Grupos">
-              Só os membros de agora
-            </Resumo>
-          )}
-          <Resumo rotulo="Permissões">{permissoes.join(" · ")}</Resumo>
           {maxDias && (
             <Resumo rotulo="Expira em">
               {maxDias} dias (política da organização)
@@ -494,6 +527,30 @@ export function CompartilharModal({
 }
 
 // ----------------------------------------------------------------------
+
+/** Minúsculas e sem acento, para a busca por nome. */
+function normalizar(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+function Iniciais({ nome, pequeno }: { nome: string; pequeno?: boolean }) {
+  const partes = nome.trim().split(/\s+/);
+  const ini = (
+    (partes[0]?.[0] ?? "") +
+    (partes.length > 1 ? partes[partes.length - 1][0] : "")
+  ).toUpperCase();
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        "bg-primary-100 text-primary-700 dark:bg-primary-500/25 dark:text-primary-200 grid shrink-0 place-items-center rounded-full font-semibold",
+        pequeno ? "size-5 text-[10px]" : "size-7 text-xs",
+      )}
+    >
+      {ini}
+    </span>
+  );
+}
 
 function Titulo({ children }: { children: React.ReactNode }) {
   return (
@@ -512,7 +569,9 @@ function Resumo({
 }) {
   return (
     <div className="flex gap-4 py-2.5">
-      <dt className="dark:text-dark-300 w-28 shrink-0 text-gray-500">{rotulo}</dt>
+      <dt className="dark:text-dark-300 w-28 shrink-0 text-gray-500">
+        {rotulo}
+      </dt>
       <dd className="dark:text-dark-100 min-w-0 flex-1 text-gray-800">
         {children}
       </dd>
@@ -545,13 +604,15 @@ function OpcaoCartao({
       <span
         className={clsx(
           "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
-          ativa ? "border-primary-500 bg-primary-500 text-white" : "border-gray-300",
+          ativa
+            ? "border-primary-500 bg-primary-500 text-white"
+            : "border-gray-300",
         )}
       >
         {ativa && <CheckIcon className="size-3" />}
       </span>
       <span>
-        <span className="dark:text-dark-100 block text-xs-plus font-medium text-gray-800">
+        <span className="dark:text-dark-100 text-xs-plus block font-medium text-gray-800">
           {titulo}
         </span>
         <span className="dark:text-dark-300 text-tiny block text-gray-500">

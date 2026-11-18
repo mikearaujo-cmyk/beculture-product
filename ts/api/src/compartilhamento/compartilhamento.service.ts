@@ -22,7 +22,6 @@ import type {
   AlterarCompartilhamentoDto,
   CriarCompartilhamentoDto,
   DestinatarioDto,
-  PoliticaDto,
   TagDto,
 } from './dto/compartilhamento.dto';
 
@@ -34,18 +33,16 @@ export interface Politica {
   permitirUsoIa: boolean;
   permitirPublicacaoOrg: boolean;
   expiracaoMaximaDias: number | null;
-  retencaoAuditoriaDias: number | null;
 }
 
 const POLITICA_PADRAO: Politica = {
   permitirMembro: true,
-  permitirEquipe: true,
-  permitirArea: true,
-  permitirEmpresa: true,
+  permitirEquipe: false,
+  permitirArea: false,
+  permitirEmpresa: false,
   permitirUsoIa: true,
   permitirPublicacaoOrg: true,
   expiracaoMaximaDias: null,
-  retencaoAuditoriaDias: null,
 };
 
 /** Concessão como a interface a mostra a quem administra a nota. */
@@ -127,48 +124,17 @@ export class CompartilhamentoService {
       where: { empresaId },
     });
     if (!p) return { ...POLITICA_PADRAO };
+    // Compartilhamento só com pessoas: grupos (equipe, área, organização)
+    // não existem mais como destinatário, qualquer que seja o valor salvo.
     return {
       permitirMembro: p.permitirMembro,
-      permitirEquipe: p.permitirEquipe,
-      permitirArea: p.permitirArea,
-      permitirEmpresa: p.permitirEmpresa,
+      permitirEquipe: false,
+      permitirArea: false,
+      permitirEmpresa: false,
       permitirUsoIa: p.permitirUsoIa,
       permitirPublicacaoOrg: p.permitirPublicacaoOrg,
       expiracaoMaximaDias: p.expiracaoMaximaDias,
-      retencaoAuditoriaDias: p.retencaoAuditoriaDias,
     };
-  }
-
-  async salvarPolitica(
-    user: AuthenticatedUser,
-    dto: PoliticaDto,
-  ): Promise<Politica> {
-    const antes = await this.politica(user.empresaId);
-    const data = {
-      permitirMembro: dto.permitirMembro,
-      permitirEquipe: dto.permitirEquipe,
-      permitirArea: dto.permitirArea,
-      permitirEmpresa: dto.permitirEmpresa,
-      permitirUsoIa: dto.permitirUsoIa,
-      permitirPublicacaoOrg: dto.permitirPublicacaoOrg,
-      expiracaoMaximaDias: dto.expiracaoMaximaDias ?? null,
-      retencaoAuditoriaDias: dto.retencaoAuditoriaDias ?? null,
-      atualizadoPorId: user.id,
-    };
-    await this.prisma.politicaCompartilhamento.upsert({
-      where: { empresaId: user.empresaId },
-      create: { empresaId: user.empresaId, ...data },
-      update: data,
-    });
-    const depois = await this.politica(user.empresaId);
-    await this.auditoria.registrar({
-      empresaId: user.empresaId,
-      atorUsuarioId: user.id,
-      acao: 'politica.alterada',
-      recursoTipo: 'politica_compartilhamento',
-      metadados: { antes, depois } as unknown as Prisma.InputJsonValue,
-    });
-    return depois;
   }
 
   // ------------------------------------------------------------------
@@ -858,9 +824,10 @@ export class CompartilhamentoService {
   // ------------------------------------------------------------------
 
   /**
-   * Pessoas e grupos que o usuário pode escolher, mais as SUGESTÕES derivadas
-   * da hierarquia (gestor, liderança, equipe, liderados, área). Sugestão é só
-   * um atalho de seleção — nada aqui concede acesso.
+   * Pessoas da organização que o usuário pode escolher (só pessoas — não há
+   * mais compartilhamento com equipe, área ou organização), mais as SUGESTÕES
+   * da hierarquia (gestor, liderança). Sugestão é só um atalho de seleção —
+   * nada aqui concede acesso.
    *
    * Dados mínimos: nome, cargo e área de membros ativos com conta.
    */
@@ -869,8 +836,13 @@ export class CompartilhamentoService {
     await this.exigirPodeCompartilhar(user);
     const empresaId = user.empresaId;
     const [membros, areas, cargos] = await Promise.all([
+      // Todos os colaboradores ativos ou com convite pendente — com ou sem
+      // conta. Quem ainda não tem conta recebe o acesso ao entrar.
       this.prisma.membro.findMany({
-        where: { empresaId, status: MembroStatus.ativo },
+        where: {
+          empresaId,
+          status: { in: [MembroStatus.ativo, MembroStatus.convite_pendente] },
+        },
         select: {
           id: true,
           usuarioId: true,
@@ -910,30 +882,20 @@ export class CompartilhamentoService {
     return {
       eu: eu ? { membroId: eu.id, areaId: eu.areaId, gestorId: eu.gestorId } : null,
       membros: membros
-        .filter((m) => m.usuarioId && m.usuarioId !== user.id)
+        .filter((m) => m.usuarioId !== user.id)
         .map((m) => ({
           id: m.id,
           nome: m.nome,
           cargo: m.cargoId ? (nomeCargo.get(m.cargoId) ?? null) : null,
           area: m.areaId ? (nomeArea.get(m.areaId) ?? null) : null,
           convidado: m.tipo === MembroTipo.convidado,
+          /** Ainda não entrou na plataforma: o acesso vale quando entrar. */
+          semConta: !m.usuarioId,
         })),
-      areas: areas.map((a) => ({
-        id: a.id,
-        nome: a.nome,
-        pessoas: membros.filter(
-          (m) => m.areaId === a.id && m.usuarioId && m.tipo === MembroTipo.membro,
-        ).length,
-      })),
+      // Só pessoas: as sugestões preenchem membros, nunca grupos.
       sugestoes: {
         gestorDireto: eu?.gestorId ?? null,
         lideranca,
-        /** Equipe do meu gestor (meus pares): grupo `equipe` com id do gestor. */
-        minhaEquipe: eu?.gestorId ?? null,
-        /** Meus liderados diretos: grupo `equipe` com o MEU id. */
-        meusLiderados:
-          eu && membros.some((m) => m.gestorId === eu.id) ? eu.id : null,
-        minhaArea: eu?.areaId ?? null,
       },
     };
   }
@@ -1090,12 +1052,14 @@ export class CompartilhamentoService {
   }
 
   private exigirTipoPermitido(tipo: string, p: Politica): void {
-    const permitido =
-      (tipo === 'membro' && p.permitirMembro) ||
-      (tipo === 'equipe' && p.permitirEquipe) ||
-      (tipo === 'area' && p.permitirArea) ||
-      (tipo === 'empresa' && p.permitirEmpresa);
-    if (!permitido) {
+    // Só pessoas específicas da mesma organização. Equipe, área e toda a
+    // organização não são mais aceitas como destinatário.
+    if (tipo !== 'membro') {
+      throw new BadRequestException(
+        'Só é possível compartilhar com pessoas específicas da organização.',
+      );
+    }
+    if (!p.permitirMembro) {
       throw new ForbiddenException(
         'A política da organização não permite este tipo de compartilhamento.',
       );
@@ -1131,30 +1095,30 @@ export class CompartilhamentoService {
     donoUsuarioId: string,
     d: DestinatarioDto,
   ): Promise<string | null> {
-    if (d.tipo === 'empresa') return null;
-    if (!d.id) throw new BadRequestException('Destinatário sem identificação.');
-    if (d.tipo === 'area') {
-      const area = await this.prisma.area.findFirst({
-        where: { id: d.id, empresaId },
-        select: { id: true },
-      });
-      if (!area) throw new BadRequestException('Área não encontrada.');
-      return area.id;
+    if (d.tipo !== 'membro') {
+      throw new BadRequestException(
+        'Só é possível compartilhar com pessoas específicas da organização.',
+      );
     }
+    if (!d.id) throw new BadRequestException('Destinatário sem identificação.');
     const m = await this.prisma.membro.findFirst({
       where: { id: d.id, empresaId },
       select: { id: true, usuarioId: true, status: true },
     });
     if (!m) throw new BadRequestException('Membro não encontrado.');
-    if (d.tipo === 'membro') {
-      if (!m.usuarioId || m.status !== MembroStatus.ativo) {
-        throw new BadRequestException(
-          'Só é possível compartilhar com membros ativos que já acessam a plataforma.',
-        );
-      }
-      if (m.usuarioId === donoUsuarioId) {
-        throw new BadRequestException('O dono já tem acesso à própria nota.');
-      }
+    // Colaborador ativo ou com convite pendente, mesmo sem conta ainda: a
+    // concessão é pelo Membro e passa a valer quando ele entrar na plataforma
+    // (a leitura exige Membro ativo vinculado à conta).
+    if (
+      m.status !== MembroStatus.ativo &&
+      m.status !== MembroStatus.convite_pendente
+    ) {
+      throw new BadRequestException(
+        'Só é possível compartilhar com colaboradores ativos da organização.',
+      );
+    }
+    if (m.usuarioId && m.usuarioId === donoUsuarioId) {
+      throw new BadRequestException('O dono já tem acesso à própria nota.');
     }
     return m.id;
   }

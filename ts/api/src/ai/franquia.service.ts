@@ -1,6 +1,6 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import type { PlanoIaB2c } from '@prisma/client';
-import { PrismaService } from '@/prisma/prisma.service';
+import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import type { PlanoIaB2c } from "@prisma/client";
+import { PrismaService } from "@/prisma/prisma.service";
 
 /**
  * Ciclo de apuração da cota. REGRA PROVISÓRIA: mês calendário. A política
@@ -16,8 +16,18 @@ export function renovacaoDoCiclo(agora = new Date()): Date {
   return new Date(agora.getFullYear(), agora.getMonth() + 1, 1);
 }
 
+/**
+ * Total de tokens BeCulture por ciclo de cada plano. Fixo por plano — não há
+ * mais seleção de cota no Backoffice. Valores PROVISÓRIOS do protótipo: a
+ * política comercial definitiva troca só este mapa.
+ */
+export const COTA_POR_PLANO: Record<PlanoIaB2c, number> = {
+  essencial: 1_000_000,
+  pro: 5_000_000,
+};
+
 export interface ConsumoPlano {
-  ciclo: { inicio: Date; renovaEm: Date; regra: 'mes_calendario_provisorio' };
+  ciclo: { inicio: Date; renovaEm: Date; regra: "mes_calendario_provisorio" };
   total: number;
   /** Cota do plano em tokens por ciclo. Null = sem limite definido. */
   franquiaGlobalTokens: number | null;
@@ -36,9 +46,8 @@ export interface EstadoCota {
  * pedidos no seletor do Navbar). Consumo nas chaves próprias (origem =
  * usuario/organizacao) é registrado só para transparência e NUNCA conta aqui.
  *
- * Só existe a cota global por plano (tokens por ciclo, configurável no
- * Backoffice). Limites por modelo não são aplicados por enquanto. Sem valor
- * configurado = sem limite (nenhum número fictício é assumido).
+ * Só existe a cota global por plano (`COTA_POR_PLANO`): o uso é um total
+ * somado de todos os modelos BeCulture. Limites por modelo não se aplicam.
  */
 @Injectable()
 export class FranquiaService {
@@ -46,26 +55,23 @@ export class FranquiaService {
 
   async consumo(usuarioId: string, plano: PlanoIaB2c): Promise<ConsumoPlano> {
     const inicio = inicioDoCiclo();
-    const [porModelo, cfg] = await Promise.all([
-      this.prisma.aiUsage.groupBy({
-        by: ['model'],
-        where: { usuarioId, origem: 'plataforma', criadoEm: { gte: inicio } },
-        _sum: { entrada: true, saida: true },
-      }),
-      this.prisma.plataformaPlanoIa.findUnique({ where: { plano } }),
-    ]);
+    const porModelo = await this.prisma.aiUsage.groupBy({
+      by: ["model"],
+      where: { usuarioId, origem: "plataforma", criadoEm: { gte: inicio } },
+      _sum: { entrada: true, saida: true },
+    });
     const linhas = porModelo.map((r) => ({
-      model: r.model ?? '(desconhecido)',
+      model: r.model ?? "(desconhecido)",
       total: (r._sum.entrada ?? 0) + (r._sum.saida ?? 0),
     }));
     return {
       ciclo: {
         inicio,
         renovaEm: renovacaoDoCiclo(),
-        regra: 'mes_calendario_provisorio',
+        regra: "mes_calendario_provisorio",
       },
       total: linhas.reduce((s, l) => s + l.total, 0),
-      franquiaGlobalTokens: cfg?.franquiaGlobalTokens ?? null,
+      franquiaGlobalTokens: COTA_POR_PLANO[plano] ?? null,
       porModelo: linhas,
     };
   }
@@ -119,12 +125,12 @@ export class FranquiaService {
     return new HttpException(
       {
         statusCode: 429,
-        codigo: 'franquia_esgotada',
+        codigo: "franquia_esgotada",
         temChavePropria,
         renovaEm: estado.renovaEm.toISOString(),
         message: temChavePropria
-          ? 'A cota de IA do seu plano acabou neste ciclo. Faça upgrade do plano ou autorize o uso das suas chaves de API até a cota renovar.'
-          : 'A cota de IA do seu plano acabou neste ciclo. Faça upgrade do plano ou cadastre sua própria chave em Configurações → IA & API.',
+          ? "A cota de IA do seu plano acabou neste ciclo. Faça upgrade do plano ou autorize o uso das suas chaves de API até a cota renovar."
+          : "A cota de IA do seu plano acabou neste ciclo. Faça upgrade do plano ou cadastre sua própria chave em Configurações → IA & API.",
       },
       HttpStatus.TOO_MANY_REQUESTS,
     );

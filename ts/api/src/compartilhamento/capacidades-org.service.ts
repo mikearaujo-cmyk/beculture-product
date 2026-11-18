@@ -4,15 +4,13 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { RolesService } from '@/acesso/roles.service';
 import type { AuthenticatedUser } from '@/auth/jwt.strategy';
 
-/** O que o usuário pode fazer no Repositório da organização e na governança. */
+/** O que o usuário pode fazer no Repositório da organização. */
 export interface CapacidadesOrg {
   visualizar: boolean;
   usarIa: boolean;
   enviar: boolean;
   editar: boolean;
   excluir: boolean;
-  politicas: boolean;
-  auditoria: boolean;
 }
 
 const NENHUMA: CapacidadesOrg = {
@@ -21,13 +19,10 @@ const NENHUMA: CapacidadesOrg = {
   enviar: false,
   editar: false,
   excluir: false,
-  politicas: false,
-  auditoria: false,
 };
 
 /**
- * Permissões sobre conteúdo INSTITUCIONAL (Repositório da organização) e
- * governança. Nada aqui alcança conteúdo pessoal — isso é só
+ * Permissões sobre conteúdo INSTITUCIONAL (Repositório da organização). Nada aqui alcança conteúdo pessoal — isso é só
  * `AcessoConteudoService`, por concessão explícita.
  *
  * Regras:
@@ -36,8 +31,7 @@ const NENHUMA: CapacidadesOrg = {
  *   • conta sem nenhuma role atribuída (o caso comum hoje: a conta que criou a
  *     empresa e quem nunca recebeu role) → ler e usar na IA, como antes desta
  *     versão; sem escrita;
- *   • demais → os códigos `documentos.*`, `compartilhamento.politicas` e
- *     `auditoria.consultar` das roles.
+ *   • demais → os códigos `documentos.*` das roles.
  */
 @Injectable()
 export class CapacidadesOrgService {
@@ -63,8 +57,6 @@ export class CapacidadesOrgService {
         enviar: true,
         editar: true,
         excluir: true,
-        politicas: true,
-        auditoria: true,
       };
     }
     const p = new Set(ctx.permissoes);
@@ -77,8 +69,6 @@ export class CapacidadesOrgService {
       enviar: p.has('documentos.enviar'),
       editar: p.has('documentos.editar'),
       excluir: p.has('documentos.excluir'),
-      politicas: p.has('compartilhamento.politicas'),
-      auditoria: p.has('auditoria.consultar'),
     };
   }
 }

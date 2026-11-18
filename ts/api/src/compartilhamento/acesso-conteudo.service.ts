@@ -142,37 +142,11 @@ export class AcessoConteudoService {
             AND d."status" = 'inativo'
         )
         AND NOT EXISTS (SELECT 1 FROM eu WHERE eu.status <> 'ativo')
-        AND (
-          (c."destinatarioTipo" = 'membro' AND pol.membro
-            AND EXISTS (SELECT 1 FROM eu WHERE eu."id" = c."destinatarioId"))
-          OR (c."destinatarioTipo" IN ('equipe', 'area', 'empresa')
-            AND NOT EXISTS (SELECT 1 FROM eu WHERE eu.tipo = 'convidado')
-            -- Grupo exige um Membro (que pode ser desativado). A única conta
-            -- sem Membro aceita é a do Owner da empresa.
-            AND (EXISTS (SELECT 1 FROM eu)
-                 OR EXISTS (SELECT 1 FROM "usuarios" u
-                            WHERE u."id" = ${usuarioId}
-                              AND u."empresaId" = ${empresaId}
-                              AND u."role" = 'owner'))
-            AND (
-              (c."destinatarioTipo" = 'equipe' AND pol.equipe)
-              OR (c."destinatarioTipo" = 'area' AND pol.area)
-              OR (c."destinatarioTipo" = 'empresa' AND pol.empresa)
-            )
-            AND (
-              (c."abrangencia" = 'fixa' AND EXISTS (
-                SELECT 1 FROM "compartilhamento_membros" cm
-                WHERE cm."compartilhamentoId" = c."id"
-                  AND cm."usuarioId" = ${usuarioId}))
-              OR (c."abrangencia" = 'dinamica' AND (
-                (c."destinatarioTipo" = 'equipe'
-                  AND EXISTS (SELECT 1 FROM eu WHERE eu."gestorId" = c."destinatarioId"))
-                OR (c."destinatarioTipo" = 'area'
-                  AND EXISTS (SELECT 1 FROM eu WHERE eu."areaId" = c."destinatarioId"))
-                OR c."destinatarioTipo" = 'empresa'
-              ))
-            ))
-        )
+        -- Só pessoas específicas da organização. Concessões antigas a grupos
+        -- (equipe, área, organização) não dão mais acesso; seguem listadas
+        -- para o dono revogar.
+        AND c."destinatarioTipo" = 'membro' AND pol.membro
+        AND EXISTS (SELECT 1 FROM eu WHERE eu."id" = c."destinatarioId")
     `;
   }
 

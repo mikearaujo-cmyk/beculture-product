@@ -1,19 +1,5 @@
 // Import Dependencies
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  Dialog,
-  DialogPanel,
-  DialogTitle,
-  Transition,
-  TransitionChild,
-} from "@headlessui/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
@@ -23,7 +9,6 @@ import {
   MagnifyingGlassIcon,
   CpuChipIcon,
   FolderPlusIcon,
-  XMarkIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
   ArrowTopRightOnSquareIcon,
@@ -62,7 +47,6 @@ import {
 import { chaveConta, lerComMigracao } from "@/utils/escopoConta";
 import { extOf, formatBytes, formatDate, tintForExt } from "@/utils/arquivos";
 import type { AnexoMemoria } from "@/utils/memoriaVault";
-import { MarkdownView } from "./MarkdownView";
 import {
   SalvarNaMemoriaModal,
   SalvarNoGrupoModal,
@@ -153,63 +137,6 @@ function extDoArquivo(a: DriveArquivo): string {
   return a.extensao.replace(/^\./, "") || extOf(a.nome);
 }
 
-/** O texto vem em Markdown quando é um Google Docs ou um .md. */
-function ehMarkdown(a: DriveArquivo): boolean {
-  return (
-    a.mimeType === "application/vnd.google-apps.document" ||
-    /\.(md|markdown)$/i.test(a.nome)
-  );
-}
-
-/** Planilha do Google (exportada em CSV) ou arquivo .csv. */
-function ehCsv(a: DriveArquivo): boolean {
-  return (
-    a.mimeType === "application/vnd.google-apps.spreadsheet" ||
-    /\.csv$/i.test(a.nome)
-  );
-}
-
-/** Uma linha de CSV, respeitando campos entre aspas. */
-function linhaCsv(linha: string): string[] {
-  const campos: string[] = [];
-  let atual = "";
-  let aspas = false;
-  for (let i = 0; i < linha.length; i++) {
-    const ch = linha[i];
-    if (aspas) {
-      if (ch === '"' && linha[i + 1] === '"') {
-        atual += '"';
-        i++;
-      } else if (ch === '"') aspas = false;
-      else atual += ch;
-    } else if (ch === '"') aspas = true;
-    else if (ch === ",") {
-      campos.push(atual);
-      atual = "";
-    } else atual += ch;
-  }
-  campos.push(atual);
-  return campos;
-}
-
-/** CSV → tabela Markdown, só para a prévia (a nota guarda o CSV original). */
-function csvParaTabela(csv: string, maxLinhas = 200): string {
-  const linhas = csv.split(/\r?\n/).filter((l) => l.trim());
-  if (linhas.length === 0) return csv;
-  const celula = (v: string) => v.replace(/\|/g, "\\|").trim() || " ";
-  const [cab, ...corpo] = linhas.slice(0, maxLinhas + 1).map(linhaCsv);
-  const md = [
-    `| ${cab.map(celula).join(" | ")} |`,
-    `| ${cab.map(() => "---").join(" | ")} |`,
-    ...corpo.map(
-      (l) => `| ${cab.map((_, i) => celula(l[i] ?? "")).join(" | ")} |`,
-    ),
-  ];
-  if (linhas.length > maxLinhas + 1)
-    md.push("", `_… e mais ${linhas.length - maxLinhas - 1} linhas._`);
-  return md.join("\n");
-}
-
 /** Corpo da nota quando o arquivo não tem texto extraível. */
 function descricaoSemTexto(a: DriveArquivo, motivo?: string): string {
   return [
@@ -291,7 +218,6 @@ export default function Drive() {
   const erro = atual?.erro ?? null;
 
   // ---- Prévia ----
-  const [aberto, setAberto] = useState<DriveArquivo | null>(null);
   const [conteudos, setConteudos] = useState<
     Record<string, DriveConteudo | { erro: string }>
   >({});
@@ -437,11 +363,11 @@ export default function Drive() {
     [caminhos, fonte],
   );
 
-  const abrir = (a: DriveArquivo) => {
-    if (a.pasta) {
+  /** Abre uma pasta. Arquivo não tem ação de clique — só o atalho do Drive. */
+  const abrirPasta = (a: DriveArquivo) => {
+    {
       setBusca("");
       setBuscaAtiva("");
-      setAberto(null);
       setSelecionados([]);
       // Pasta aberta a partir de uma busca: a trilha vira o caminho real.
       if (buscaAtiva) {
@@ -453,11 +379,7 @@ export default function Drive() {
       } else {
         setTrilha((t) => [...t, { id: a.id, nome: a.nome }]);
       }
-      return;
     }
-    setAberto(a);
-    if (!conteudos[a.id]) void carregarConteudo(a);
-    if (!caminhos[a.id]) void carregarCaminho(a);
   };
 
   const trocarVisao = (v: DriveVisao) => {
@@ -465,13 +387,11 @@ export default function Drive() {
     setTrilha([]);
     setBusca("");
     setBuscaAtiva("");
-    setAberto(null);
     setSelecionados([]);
   };
 
   const irParaTrilha = (i: number) => {
     setTrilha((t) => t.slice(0, i));
-    setAberto(null);
     setSelecionados([]);
   };
 
@@ -683,9 +603,6 @@ export default function Drive() {
     );
 
   const carregando = arquivos === null;
-  // O drawer continua mostrando o último arquivo enquanto anima o fechamento.
-  const [exibido, setExibido] = useState<DriveArquivo | null>(null);
-  if (aberto && aberto !== exibido) setExibido(aberto);
   const nomesGrupo = (id: string) =>
     (emGrupo[id] ?? [])
       .map((gid) => grupos.find((g) => g.id === gid)?.title)
@@ -818,7 +735,7 @@ export default function Drive() {
               </div>
             </div>
 
-            {/* Corpo: lista (a prévia abre num drawer lateral) */}
+            {/* Corpo: lista */}
             <div className="mt-5">
               <section className="dark:border-dark-600 dark:bg-dark-700 flex min-w-0 flex-col rounded-xl border border-gray-200 bg-white">
                 {/* Breadcrumb + ações da seleção */}
@@ -915,11 +832,12 @@ export default function Drive() {
                         <LinhaArquivo
                           key={a.id}
                           arquivo={a}
-                          aberto={aberto?.id === a.id}
                           selecionado={selecionados.includes(a.id)}
                           noRepositorio={noRepositorio.includes(a.id)}
                           grupos={nomesGrupo(a.id)}
-                          onAbrir={() => abrir(a)}
+                          onAbrirPasta={() => abrirPasta(a)}
+                          onSalvar={() => void salvarArquivo(a)}
+                          onSalvarNoGrupo={() => void salvarArquivoNoGrupo(a)}
                           onSelecionar={() => alternarSelecao(a.id)}
                         />
                       ))}
@@ -944,143 +862,6 @@ export default function Drive() {
           </>
         }
       </div>
-
-      {/* Prévia: drawer lateral */}
-      <Transition show={aberto !== null} as={Fragment}>
-        <Dialog
-          as="div"
-          className="relative z-61"
-          onClose={() => setAberto(null)}
-        >
-          <TransitionChild
-            as={Fragment}
-            enter="ease-out duration-200"
-            enterFrom="opacity-0"
-            enterTo="opacity-100"
-            leave="ease-in duration-150"
-            leaveFrom="opacity-100"
-            leaveTo="opacity-0"
-          >
-            <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/40" />
-          </TransitionChild>
-
-          <TransitionChild
-            as={Fragment}
-            enter="ease-out duration-200"
-            enterFrom="translate-x-full"
-            enterTo="translate-x-0"
-            leave="ease-in duration-150"
-            leaveFrom="translate-x-0"
-            leaveTo="translate-x-full"
-          >
-            <DialogPanel className="dark:bg-dark-700 fixed inset-y-0 right-0 flex w-screen flex-col bg-white shadow-xl sm:inset-y-2 sm:mr-2 sm:w-[30rem] sm:rounded-xl">
-              {exibido && (
-                <>
-                  <div className="dark:border-dark-600 flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
-                    <div className="min-w-0">
-                      <DialogTitle
-                        as="h3"
-                        className="dark:text-dark-50 truncate text-sm font-semibold text-gray-800"
-                      >
-                        {exibido.nome}
-                      </DialogTitle>
-                      <p className="dark:text-dark-300 text-tiny truncate text-gray-500">
-                        {[
-                          exibido.dono,
-                          exibido.modificadoEm
-                            ? formatDate(exibido.modificadoEm)
-                            : "",
-                          exibido.tamanho ? formatBytes(exibido.tamanho) : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                      {(caminhos[exibido.id]?.length ?? 0) > 1 && (
-                        <p className="dark:text-dark-400 text-tiny truncate text-gray-400">
-                          {caminhos[exibido.id]
-                            .slice(0, -1)
-                            .map((p) => p.nome)
-                            .join(" / ")}
-                        </p>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {noRepositorio.includes(exibido.id) && (
-                          <Badge
-                            color="primary"
-                            variant="soft"
-                            className="text-tiny"
-                          >
-                            Já no Repositório
-                          </Badge>
-                        )}
-                        {nomesGrupo(exibido.id).map((g) => (
-                          <Badge
-                            key={g}
-                            color="info"
-                            variant="soft"
-                            className="text-tiny max-w-[9rem] truncate"
-                          >
-                            {g}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {exibido.webViewLink && (
-                        <a
-                          href={exibido.webViewLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Abrir no Drive"
-                          aria-label="Abrir no Drive"
-                          className="dark:text-dark-200 dark:hover:bg-dark-600 grid size-8 place-items-center rounded-lg text-gray-500 hover:bg-gray-100"
-                        >
-                          <ArrowTopRightOnSquareIcon className="size-4.5" />
-                        </a>
-                      )}
-                      <Button
-                        variant="flat"
-                        isIcon
-                        onClick={() => setAberto(null)}
-                        className="size-8 shrink-0 rounded-lg"
-                        aria-label="Fechar prévia"
-                      >
-                        <XMarkIcon className="size-5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="dark:border-dark-600 flex shrink-0 gap-2 border-b border-gray-200 px-4 py-3">
-                    <Button
-                      color="primary"
-                      onClick={() => void salvarArquivo(exibido)}
-                      className="text-xs-plus h-8 flex-1 gap-1.5 px-2.5"
-                    >
-                      <CpuChipIcon className="size-4" />
-                      Salvar no Repositório
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => void salvarArquivoNoGrupo(exibido)}
-                      className="text-xs-plus h-8 flex-1 gap-1.5 px-2.5"
-                    >
-                      <FolderPlusIcon className="size-4" />
-                      Salvar no Grupo
-                    </Button>
-                  </div>
-
-                  <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                    <Previa
-                      arquivo={exibido}
-                      conteudo={conteudos[exibido.id]}
-                    />
-                  </div>
-                </>
-              )}
-            </DialogPanel>
-          </TransitionChild>
-        </Dialog>
-      </Transition>
 
       <SalvarNaMemoriaModal
         item={memItem}
@@ -1116,37 +897,35 @@ export default function Drive() {
 }
 
 // ----------------------------------------------------------------------
-// Uma linha da lista: pasta (abre) ou arquivo (abre a prévia no drawer; a caixa marca
-// para salvar em lote).
+// Uma linha da lista: pasta (abre) ou arquivo (sem ação de clique; a caixa
+// marca para salvar em lote e o ícone à direita é o atalho para o Drive).
 // ----------------------------------------------------------------------
+
+const ICONE_ACAO =
+  "dark:text-dark-300 dark:hover:bg-dark-500 dark:hover:text-dark-100 grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700";
 
 function LinhaArquivo({
   arquivo: a,
-  aberto,
   selecionado,
   noRepositorio,
   grupos,
-  onAbrir,
+  onAbrirPasta,
   onSelecionar,
+  onSalvar,
+  onSalvarNoGrupo,
 }: {
   arquivo: DriveArquivo;
-  aberto: boolean;
   selecionado: boolean;
   noRepositorio: boolean;
   grupos: string[];
-  onAbrir: () => void;
+  onAbrirPasta: () => void;
   onSelecionar: () => void;
+  onSalvar: () => void;
+  onSalvarNoGrupo: () => void;
 }) {
   const ext = extDoArquivo(a);
   return (
-    <li
-      className={clsx(
-        "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors",
-        aberto
-          ? "bg-primary-600/10 dark:bg-primary-400/10"
-          : "dark:hover:bg-dark-600/50 hover:bg-gray-50",
-      )}
-    >
+    <li className="dark:hover:bg-dark-600/50 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-gray-50">
       <span className="grid w-5 shrink-0 place-items-center">
         {!a.pasta && (
           <Checkbox
@@ -1156,40 +935,53 @@ function LinhaArquivo({
           />
         )}
       </span>
-      <button
-        type="button"
-        onClick={onAbrir}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        {a.pasta ? (
-          <FolderIcon className="size-8 shrink-0 stroke-[1.2] text-amber-500" />
-        ) : ext ? (
-          <span
-            className={clsx(
-              "text-tiny grid size-8 shrink-0 place-items-center rounded-lg font-semibold text-white uppercase",
-              tintForExt(ext),
+      {(() => {
+        const conteudo = (
+          <>
+            {a.pasta ? (
+              <FolderIcon className="size-8 shrink-0 stroke-[1.2] text-amber-500" />
+            ) : ext ? (
+              <span
+                className={clsx(
+                  "text-tiny grid size-8 shrink-0 place-items-center rounded-lg font-semibold text-white uppercase",
+                  tintForExt(ext),
+                )}
+              >
+                {ext.slice(0, 4)}
+              </span>
+            ) : (
+              <DocumentIcon className="dark:text-dark-300 size-8 shrink-0 stroke-[1.2] text-gray-400" />
             )}
+            <span className="min-w-0 flex-1">
+              <span className="dark:text-dark-100 block truncate text-sm font-medium text-gray-800">
+                {a.nome}
+              </span>
+              <span className="dark:text-dark-400 text-tiny block truncate text-gray-400">
+                {[
+                  a.pasta ? "Pasta" : a.tamanho ? formatBytes(a.tamanho) : "",
+                  a.modificadoEm ? formatDate(a.modificadoEm) : "",
+                  a.dono,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </span>
+          </>
+        );
+        return a.pasta ? (
+          <button
+            type="button"
+            onClick={onAbrirPasta}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
-            {ext.slice(0, 4)}
-          </span>
+            {conteudo}
+          </button>
         ) : (
-          <DocumentIcon className="dark:text-dark-300 size-8 shrink-0 stroke-[1.2] text-gray-400" />
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="dark:text-dark-100 block truncate text-sm font-medium text-gray-800">
-            {a.nome}
-          </span>
-          <span className="dark:text-dark-400 text-tiny block truncate text-gray-400">
-            {[
-              a.pasta ? "Pasta" : a.tamanho ? formatBytes(a.tamanho) : "",
-              a.modificadoEm ? formatDate(a.modificadoEm) : "",
-              a.dono,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        </span>
-      </button>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {conteudo}
+          </div>
+        );
+      })()}
       <span className="flex shrink-0 items-center gap-1">
         {noRepositorio && (
           <Badge color="primary" variant="soft" className="text-tiny">
@@ -1205,78 +997,38 @@ function LinhaArquivo({
             {grupos.length > 1 ? `${grupos.length} grupos` : grupos[0]}
           </Badge>
         )}
+        {!a.pasta && (
+          <>
+            <button
+              type="button"
+              onClick={onSalvar}
+              title="Salvar no Repositório"
+              aria-label={`Salvar ${a.nome} no Repositório`}
+              className={ICONE_ACAO}
+            >
+              <CpuChipIcon className="size-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onSalvarNoGrupo}
+              title="Salvar no Grupo"
+              aria-label={`Salvar ${a.nome} no Grupo`}
+              className={ICONE_ACAO}
+            >
+              <FolderPlusIcon className="size-4.5" />
+            </button>
+            {/* Só o atalho visual por enquanto: ainda não leva ao arquivo. */}
+            <button
+              type="button"
+              title="Abrir no Google Drive"
+              aria-label={`Abrir ${a.nome} no Google Drive`}
+              className={ICONE_ACAO}
+            >
+              <ArrowTopRightOnSquareIcon className="size-4.5" />
+            </button>
+          </>
+        )}
       </span>
     </li>
-  );
-}
-
-// ----------------------------------------------------------------------
-// Prévia do arquivo aberto: texto extraído (Markdown para Docs/.md), ou a
-// miniatura do Drive quando o tipo não tem texto.
-// ----------------------------------------------------------------------
-
-function Previa({
-  arquivo,
-  conteudo,
-}: {
-  arquivo: DriveArquivo;
-  conteudo: DriveConteudo | { erro: string } | undefined;
-}) {
-  if (!conteudo) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-10">
-        <Spinner className="size-4" />
-        <p className="dark:text-dark-400 text-sm text-gray-400">
-          Lendo o arquivo…
-        </p>
-      </div>
-    );
-  }
-  if ("erro" in conteudo) {
-    return (
-      <p className="dark:text-dark-300 py-8 text-center text-sm text-gray-500">
-        {conteudo.erro}
-      </p>
-    );
-  }
-  if (!conteudo.texto) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-6 text-center">
-        {arquivo.thumbnailLink ? (
-          <img
-            src={arquivo.thumbnailLink}
-            alt=""
-            referrerPolicy="no-referrer"
-            className="dark:border-dark-500 max-h-72 rounded-lg border border-gray-200 object-contain"
-          />
-        ) : (
-          <DocumentIcon className="dark:text-dark-400 size-12 stroke-1 text-gray-300" />
-        )}
-        <p className="dark:text-dark-300 text-xs-plus max-w-xs text-gray-500">
-          {conteudo.motivo ?? "Sem prévia de texto para este arquivo."} Ao
-          salvar, o arquivo original vai junto para o Repositório.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div>
-      {conteudo.truncado && (
-        <p className="dark:text-dark-300 text-tiny mb-2 rounded-lg bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-500/10">
-          Texto longo: a prévia e a nota trazem só o início do arquivo.
-        </p>
-      )}
-      {ehMarkdown(arquivo) || ehCsv(arquivo) ? (
-        <div className="text-sm">
-          <MarkdownView>
-            {ehCsv(arquivo) ? csvParaTabela(conteudo.texto) : conteudo.texto}
-          </MarkdownView>
-        </div>
-      ) : (
-        <pre className="dark:text-dark-200 text-xs-plus font-sans leading-relaxed break-words whitespace-pre-wrap text-gray-600">
-          {conteudo.texto}
-        </pre>
-      )}
-    </div>
   );
 }

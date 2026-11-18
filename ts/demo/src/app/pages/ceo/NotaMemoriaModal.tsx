@@ -483,16 +483,17 @@ export function NotaMemoriaModal({
           </TransitionChild>
         </div>
         {/* Aninhado no Dialog da nota: o Headless UI trata o modal filho
-            como a camada de cima, sem fechar a nota por "clique fora". */}
-        <CompartilharModal
-          alvo={
-            compartilhando && path
-              ? { path, titulo: titulo ?? path.split("/").pop() ?? path }
-              : null
-          }
-          close={() => setCompartilhando(false)}
-          onConcluido={onCompartilhado}
-        />
+            como a camada de cima, sem fechar a nota por "clique fora".
+            Só é MONTADO ao clicar em "Compartilhar": um <Transition> dentro
+            de outro vira filho e segue o `show` do pai (ignora o próprio), o
+            que abria o compartilhamento junto com a nota. */}
+        {isOpen && compartilhando && path && (
+          <CompartilharModal
+            alvo={{ path, titulo: titulo ?? path.split("/").pop() ?? path }}
+            close={() => setCompartilhando(false)}
+            onConcluido={onCompartilhado}
+          />
+        )}
       </Dialog>
     </Transition>
   );

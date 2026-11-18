@@ -3,10 +3,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-} from '@nestjs/common';
-import type { PlanoIaB2c } from '@prisma/client';
-import { PrismaService } from '@/prisma/prisma.service';
-import { CryptoService } from './crypto';
+} from "@nestjs/common";
+import type { PlanoIaB2c } from "@prisma/client";
+import { PrismaService } from "@/prisma/prisma.service";
+import { CryptoService } from "./crypto";
+import { COTA_POR_PLANO } from "./franquia.service";
 import {
   isKnownModelFor,
   isKnownProvider,
@@ -14,9 +15,9 @@ import {
   providerName,
   providerServes,
   type AiModality,
-} from './catalogo';
+} from "./catalogo";
 
-export const PLANOS_IA: PlanoIaB2c[] = ['essencial', 'pro'];
+export const PLANOS_IA: PlanoIaB2c[] = ["essencial", "pro"];
 
 export interface PlataformaCredencialPublica {
   id: string;
@@ -26,7 +27,7 @@ export interface PlataformaCredencialPublica {
   demonstrativo: boolean;
   nome: string | null;
   keyLast4: string;
-  status: 'ativa' | 'invalida';
+  status: "ativa" | "invalida";
   validatedAt: Date | null;
   ativa: boolean;
   modelCount: number;
@@ -73,7 +74,7 @@ export class PlataformaIaService {
 
   async listarCredenciais(): Promise<PlataformaCredencialPublica[]> {
     const rows = await this.prisma.plataformaCredencial.findMany({
-      orderBy: { criadoEm: 'asc' },
+      orderBy: { criadoEm: "asc" },
       include: { _count: { select: { modelos: true } } },
     });
     return rows.map((c) => ({
@@ -101,20 +102,25 @@ export class PlataformaIaService {
     nome?: string;
   }): Promise<PlataformaCredencialPublica> {
     const nomeLivre = input.nomeProvedor?.trim() || null;
-    const provider = (input.provider?.trim() || slug(nomeLivre ?? '')).slice(0, 60);
+    const provider = (input.provider?.trim() || slug(nomeLivre ?? "")).slice(
+      0,
+      60,
+    );
     if (!provider) {
-      throw new BadRequestException('Escolha um provedor ou informe o nome.');
+      throw new BadRequestException("Escolha um provedor ou informe o nome.");
     }
     const apiKey = input.apiKey.trim();
     const { validatedAt, aviso } = await this.validar(provider, apiKey);
     const c = await this.prisma.plataformaCredencial.create({
       data: {
         provider,
-        nomeProvedor: isKnownProvider(provider) ? null : (nomeLivre ?? provider),
+        nomeProvedor: isKnownProvider(provider)
+          ? null
+          : (nomeLivre ?? provider),
         nome: input.nome?.trim() || null,
         apiKeyEncrypted: this.crypto.encrypt(apiKey),
         keyLast4: apiKey.slice(-4),
-        status: 'ativa',
+        status: "ativa",
         validatedAt,
       },
     });
@@ -134,7 +140,7 @@ export class PlataformaIaService {
     const atual = await this.prisma.plataformaCredencial.findUnique({
       where: { id },
     });
-    if (!atual) throw new NotFoundException('Credencial não encontrada.');
+    if (!atual) throw new NotFoundException("Credencial não encontrada.");
     const data: Record<string, unknown> = {};
     let aviso: string | undefined;
     if (input.nome !== undefined) data.nome = input.nome.trim() || null;
@@ -149,7 +155,7 @@ export class PlataformaIaService {
       Object.assign(data, {
         apiKeyEncrypted: this.crypto.encrypt(apiKey),
         keyLast4: apiKey.slice(-4),
-        status: 'ativa',
+        status: "ativa",
         validatedAt: r.validatedAt,
       });
     }
@@ -163,12 +169,12 @@ export class PlataformaIaService {
     const atual = await this.prisma.plataformaCredencial.findUnique({
       where: { id },
     });
-    if (!atual) throw new NotFoundException('Credencial não encontrada.');
+    if (!atual) throw new NotFoundException("Credencial não encontrada.");
     // Exemplo demonstrativo: sem chamada ao provedor (ver `validar`).
-    const status = 'ativa' as const;
+    const status = "ativa" as const;
     const validatedAt: Date | null = null;
     const aviso =
-      'Chave de exemplo: no protótipo os modelos BeCulture não executam chamadas, então ela não é validada no provedor.';
+      "Chave de exemplo: no protótipo os modelos BeCulture não executam chamadas, então ela não é validada no provedor.";
     await this.prisma.plataformaCredencial.update({
       where: { id },
       data: { status, validatedAt },
@@ -181,12 +187,12 @@ export class PlataformaIaService {
     const { count } = await this.prisma.plataformaCredencial.deleteMany({
       where: { id },
     });
-    if (!count) throw new NotFoundException('Credencial não encontrada.');
+    if (!count) throw new NotFoundException("Credencial não encontrada.");
   }
 
   async marcarInvalida(credencialId: string): Promise<void> {
     await this.prisma.plataformaCredencial
-      .update({ where: { id: credencialId }, data: { status: 'invalida' } })
+      .update({ where: { id: credencialId }, data: { status: "invalida" } })
       .catch(() => undefined);
   }
 
@@ -194,7 +200,7 @@ export class PlataformaIaService {
 
   async listarModelos(): Promise<PlataformaModeloPublico[]> {
     const rows = await this.prisma.plataformaModelo.findMany({
-      orderBy: [{ kind: 'asc' }, { ordem: 'asc' }, { criadoEm: 'asc' }],
+      orderBy: [{ kind: "asc" }, { ordem: "asc" }, { criadoEm: "asc" }],
       include: { credencial: true, planos: true },
     });
     return rows.map((m) => {
@@ -213,11 +219,16 @@ export class PlataformaIaService {
         providerNome: m.credencial.nomeProvedor || providerName(m.provider),
         model: m.model,
         rotulo:
-          m.rotulo || rotuloDoCatalogo(m.provider, m.kind as AiModality, m.model),
+          m.rotulo ||
+          rotuloDoCatalogo(m.provider, m.kind as AiModality, m.model),
         ativo: m.ativo,
         ordem: m.ordem,
         credencialOk,
-        demonstrativo: !isKnownModelFor(m.provider, m.kind as AiModality, m.model),
+        demonstrativo: !isKnownModelFor(
+          m.provider,
+          m.kind as AiModality,
+          m.model,
+        ),
         publicado: m.ativo && credencialOk && planos.length > 0,
         planos,
       };
@@ -234,17 +245,22 @@ export class PlataformaIaService {
     const cred = await this.prisma.plataformaCredencial.findUnique({
       where: { id: input.credencialId },
     });
-    if (!cred) throw new BadRequestException('Credencial não encontrada.');
+    if (!cred) throw new BadRequestException("Credencial não encontrada.");
     // Provedor do catálogo: a modalidade precisa ser atendida por ele. Modelo
     // fora do catálogo é aceito como DEMONSTRATIVO (marcado na listagem).
-    if (isKnownProvider(cred.provider) && !providerServes(cred.provider, input.kind)) {
+    if (
+      isKnownProvider(cred.provider) &&
+      !providerServes(cred.provider, input.kind)
+    ) {
       throw new BadRequestException(
-        'Este provedor não oferece modelos para esta modalidade.',
+        "Este provedor não oferece modelos para esta modalidade.",
       );
     }
     input.model = input.model.trim();
     if (!input.model) {
-      throw new BadRequestException('Informe a identificação técnica do modelo.');
+      throw new BadRequestException(
+        "Informe a identificação técnica do modelo.",
+      );
     }
     const maior = await this.prisma.plataformaModelo.aggregate({
       where: { kind: input.kind },
@@ -289,7 +305,9 @@ export class PlataformaIaService {
     if (input.model !== undefined) {
       const model = input.model.trim();
       if (!model) {
-        throw new BadRequestException('Informe a identificação técnica do modelo.');
+        throw new BadRequestException(
+          "Informe a identificação técnica do modelo.",
+        );
       }
       data.model = model;
     }
@@ -297,9 +315,11 @@ export class PlataformaIaService {
     if (input.ativo !== undefined) data.ativo = input.ativo;
     if (input.rotulo !== undefined) data.rotulo = input.rotulo.trim() || null;
     if (input.ordem !== undefined) data.ordem = input.ordem;
-    await this.prisma.plataformaModelo.update({ where: { id }, data }).catch(() => {
-      throw new NotFoundException('Modelo não encontrado.');
-    });
+    await this.prisma.plataformaModelo
+      .update({ where: { id }, data })
+      .catch(() => {
+        throw new NotFoundException("Modelo não encontrado.");
+      });
     const [pub] = (await this.listarModelos()).filter((x) => x.id === id);
     return pub;
   }
@@ -330,41 +350,18 @@ export class PlataformaIaService {
       });
     }
     const [pub] = (await this.listarModelos()).filter((x) => x.id === modeloId);
-    if (!pub) throw new NotFoundException('Modelo não encontrado.');
+    if (!pub) throw new NotFoundException("Modelo não encontrado.");
     return pub;
   }
 
   // ---------- Planos (franquia) ----------
 
-  async listarPlanos() {
-    const rows = await this.prisma.plataformaPlanoIa.findMany();
-    return PLANOS_IA.map((plano) => {
-      const r = rows.find((x) => x.plano === plano);
-      return {
-        plano,
-        franquiaGlobalTokens: r?.franquiaGlobalTokens ?? null,
-        observacao: r?.observacao ?? null,
-      };
-    });
-  }
-
-  async definirFranquia(
-    plano: PlanoIaB2c,
-    input: { franquiaGlobalTokens: number | null; observacao?: string },
-  ) {
-    await this.prisma.plataformaPlanoIa.upsert({
-      where: { plano },
-      update: {
-        franquiaGlobalTokens: input.franquiaGlobalTokens,
-        observacao: input.observacao ?? null,
-      },
-      create: {
-        plano,
-        franquiaGlobalTokens: input.franquiaGlobalTokens,
-        observacao: input.observacao ?? null,
-      },
-    });
-    return this.listarPlanos();
+  /** Cota fixa de cada plano (só leitura — ver `COTA_POR_PLANO`). */
+  listarPlanos() {
+    return PLANOS_IA.map((plano) => ({
+      plano,
+      franquiaGlobalTokens: COTA_POR_PLANO[plano],
+    }));
   }
 
   // ---------- Leitura para as contas B2C BeCulture ----------
@@ -398,7 +395,7 @@ export class PlataformaIaService {
     const porPlano = PLANOS_IA.map((plano) => ({
       plano,
       modelosTexto: modelosOk.filter(
-        (m) => m.kind === 'text' && m.planos.some((p) => p.plano === plano),
+        (m) => m.kind === "text" && m.planos.some((p) => p.plano === plano),
       ).length,
       modelos: modelosOk.filter((m) => m.planos.some((p) => p.plano === plano))
         .length,
@@ -425,7 +422,7 @@ export class PlataformaIaService {
     apiKey: string,
   ): Promise<{ validatedAt: Date | null; aviso?: string }> {
     if (!apiKey || apiKey.length < 8) {
-      throw new BadRequestException('A chave de API parece curta demais.');
+      throw new BadRequestException("A chave de API parece curta demais.");
     }
     // Chaves de Modelos BeCulture são EXEMPLOS no protótipo: não executam
     // chamadas (quem responde é a chave do usuário em IA & API), então não
@@ -446,9 +443,9 @@ function rotuloDoCatalogo(
 /** Slug simples para provedores digitados livremente. */
 function slug(nome: string): string {
   return nome
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }

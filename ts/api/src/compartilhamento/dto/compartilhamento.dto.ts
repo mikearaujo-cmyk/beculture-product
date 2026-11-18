@@ -6,16 +6,17 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
-  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
-  Max,
   MaxLength,
-  Min,
   ValidateNested,
 } from 'class-validator';
 
+/**
+ * Tipos que existem nos registros. Concessões NOVAS só aceitam `membro`
+ * (pessoa da mesma organização); os demais ficam para ler/revogar as antigas.
+ */
 export const TIPOS_DESTINATARIO = [
   'membro',
   'equipe',
@@ -141,26 +142,4 @@ export class AlterarCompartilhamentoDto {
   @IsOptional()
   @IsBoolean()
   semExpiracao?: boolean;
-}
-
-export class PoliticaDto {
-  @IsBoolean() permitirMembro!: boolean;
-  @IsBoolean() permitirEquipe!: boolean;
-  @IsBoolean() permitirArea!: boolean;
-  @IsBoolean() permitirEmpresa!: boolean;
-  @IsBoolean() permitirUsoIa!: boolean;
-  /** Legado: a publicação de cópia saiu da interface; aceito e ignorado. */
-  @IsOptional() @IsBoolean() permitirPublicacaoOrg?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(3650)
-  expiracaoMaximaDias?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  @Min(180)
-  @Max(3650)
-  retencaoAuditoriaDias?: number | null;
 }

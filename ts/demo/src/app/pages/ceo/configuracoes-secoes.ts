@@ -4,10 +4,8 @@ import {
   BriefcaseIcon,
   BuildingOffice2Icon,
   CircleStackIcon,
-  ClipboardDocumentListIcon,
   CpuChipIcon,
   KeyIcon,
-  LockClosedIcon,
   ShareIcon,
   SparklesIcon,
   SpeakerWaveIcon,
@@ -163,22 +161,6 @@ export const SECOES = [
     grupo: "acesso",
     titulo: "Roles",
     icon: KeyIcon,
-    feature: null,
-  },
-  // Governança do compartilhamento entre membros: regras e trilha. Nenhuma
-  // das duas dá acesso ao conteúdo pessoal de ninguém.
-  {
-    id: "compartilhamento",
-    grupo: "acesso",
-    titulo: "Compartilhamento",
-    icon: LockClosedIcon,
-    feature: null,
-  },
-  {
-    id: "auditoria",
-    grupo: "acesso",
-    titulo: "Auditoria",
-    icon: ClipboardDocumentListIcon,
     feature: null,
   },
 ] as const satisfies readonly FormaDaSecao[];

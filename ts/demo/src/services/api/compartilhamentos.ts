@@ -6,6 +6,10 @@ import axios from "@/utils/axios";
 // ele é do usuário. Nada aqui dá acesso automático: o servidor só entrega
 // conteúdo alheio quando há uma concessão válida AGORA.
 
+/**
+ * Concessões novas só aceitam `membro` (pessoa da mesma organização). Os
+ * demais tipos aparecem apenas em concessões antigas, que não dão mais acesso.
+ */
 export type TipoDestinatario = "membro" | "equipe" | "area" | "empresa";
 export type Abrangencia = "fixa" | "dinamica";
 
@@ -73,18 +77,17 @@ export interface MembroDestino {
   cargo: string | null;
   area: string | null;
   convidado: boolean;
+  /** Ainda não entrou na plataforma: o acesso vale quando entrar. */
+  semConta?: boolean;
 }
 
 export interface Destinatarios {
   eu: { membroId: string; areaId: string | null; gestorId: string | null } | null;
+  /** Só pessoas: não há mais compartilhamento com equipe, área ou organização. */
   membros: MembroDestino[];
-  areas: { id: string; nome: string; pessoas: number }[];
   sugestoes: {
     gestorDireto: string | null;
     lideranca: string[];
-    minhaEquipe: string | null;
-    meusLiderados: string | null;
-    minhaArea: string | null;
   };
 }
 
@@ -96,7 +99,6 @@ export interface Politica {
   permitirUsoIa: boolean;
   permitirPublicacaoOrg: boolean;
   expiracaoMaximaDias: number | null;
-  retencaoAuditoriaDias: number | null;
 }
 
 export interface CapacidadesOrg {
@@ -105,8 +107,6 @@ export interface CapacidadesOrg {
   enviar: boolean;
   editar: boolean;
   excluir: boolean;
-  politicas: boolean;
-  auditoria: boolean;
 }
 
 export interface EventoHistorico {
@@ -212,18 +212,6 @@ export async function politicaApi(): Promise<{
 }> {
   const { data } = await axios.get("/compartilhamentos/politica");
   return data;
-}
-
-export async function salvarPoliticaApi(p: Politica): Promise<Politica> {
-  const { data } = await axios.put<{ politica: Politica }>(
-    "/compartilhamentos/politica",
-    {
-      ...p,
-      expiracaoMaximaDias: p.expiracaoMaximaDias ?? undefined,
-      retencaoAuditoriaDias: p.retencaoAuditoriaDias ?? undefined,
-    },
-  );
-  return data.politica;
 }
 
 export async function alterarCompartilhamentoApi(

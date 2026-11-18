@@ -239,7 +239,6 @@ export interface PlataformaModelo {
 export interface PlataformaPlano {
   plano: PlanoIa;
   franquiaGlobalTokens: number | null;
-  observacao: string | null;
 }
 
 export interface StatusPlataforma {
@@ -330,14 +329,9 @@ export const backoffice = {
         input,
       )
       .then((r) => r.data),
+  /** Cota fixa de cada plano (só leitura). */
   planos: () =>
     axios.get<PlataformaPlano[]>("/backoffice/ia/planos").then((r) => r.data),
-  definirFranquia: (plano: PlanoIa, franquiaGlobalTokens: number | null) =>
-    axios
-      .put<PlataformaPlano[]>(`/backoffice/ia/planos/${plano}`, {
-        franquiaGlobalTokens,
-      })
-      .then((r) => r.data),
   contaDemo: () =>
     axios.get<ResumoContaIa>("/backoffice/conta-demo").then((r) => r.data),
   migrar: (input: {

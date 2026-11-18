@@ -126,30 +126,6 @@ export const GRUPOS_PERMISSOES: GrupoPermissoes[] = [
     ],
   },
   {
-    id: "compartilhamento",
-    titulo: "Compartilhamento",
-    descricao:
-      "Regras de compartilhamento entre membros. Não dá acesso ao conteúdo pessoal de ninguém.",
-    permissoes: [
-      {
-        code: "compartilhamento.politicas",
-        rotulo: "Definir políticas de compartilhamento",
-      },
-    ],
-  },
-  {
-    id: "auditoria",
-    titulo: "Auditoria",
-    descricao:
-      "Registros de quem compartilhou, acessou ou revogou o quê. Só metadados, nunca o conteúdo.",
-    permissoes: [
-      {
-        code: "auditoria.consultar",
-        rotulo: "Consultar registros de auditoria (só metadados)",
-      },
-    ],
-  },
-  {
     id: "ia",
     titulo: "IA e Chat",
     descricao: "Conversas com a IA e geração de conteúdo.",
