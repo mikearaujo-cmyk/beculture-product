@@ -309,7 +309,7 @@ function renderEtapa(
       return {
         titulo: "Modelos incluídos no seu plano",
         subtitulo: `Plano ${r.planoIa ? ROTULO_PLANO[r.planoIa] : ""} · IA gerenciada pela BeCulture`,
-        conteudo: <ModelosDoPlano r={r} recarregar={recarregar} />,
+        conteudo: <ModelosDoPlano r={r} />,
         podeAvancar: true,
         rotuloAvancar:
           r.prontidao === "sem_modelos_plataforma"
@@ -430,34 +430,7 @@ function renderEtapa(
   }
 }
 
-function ModelosDoPlano({
-  r,
-  recarregar,
-}: {
-  r: ResumoContaIa;
-  recarregar: () => void;
-}) {
-  if (r.prontidao === "sem_modelos_plataforma") {
-    return (
-      <>
-        <EstadoIaNaoConfigurada
-          prontidao="sem_modelos_plataforma"
-          modalidade="beculture"
-          compacto
-          acao={
-            <Button variant="outlined" className="h-8 text-xs" onClick={recarregar}>
-              Verificar novamente
-            </Button>
-          }
-        />
-        <p className="dark:border-dark-500 dark:text-dark-300 mt-3 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-400">
-          Apenas no protótipo: a liberação de modelos é feita no Backoffice →
-          Modelos BeCulture (acessível pelo rodapé da sidebar depois de
-          entrar).
-        </p>
-      </>
-    );
-  }
+function ModelosDoPlano({ r }: { r: ResumoContaIa }) {
   return (
     <ul className="space-y-2">
       {r.modelosPlataforma.map((m) => (

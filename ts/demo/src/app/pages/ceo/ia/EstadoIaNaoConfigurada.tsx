@@ -14,7 +14,6 @@ import {
   ExclamationTriangleIcon,
   KeyIcon,
   NoSymbolIcon,
-  ServerStackIcon,
   Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
@@ -44,18 +43,9 @@ function conteudoDoEstado(
   switch (prontidao) {
     case "pronta":
       return null;
+    // Sem modelos BeCulture no plano: não exibimos aviso ao usuário.
     case "sem_modelos_plataforma":
-      return {
-        Icon: ServerStackIcon,
-        tom: "info",
-        titulo: "Os modelos BeCulture ainda não estão disponíveis no seu plano",
-        acontecendo:
-          "Seu plano inclui IA gerenciada pela BeCulture, mas a plataforma ainda não disponibilizou nenhum modelo para ele.",
-        configurar:
-          "Nada do seu lado. A BeCulture precisa cadastrar um provedor, uma credencial e liberar ao menos um modelo para o seu plano.",
-        depois:
-          "Assim que um modelo for liberado, ele aparece aqui e os recursos de IA passam a funcionar automaticamente, sem nenhuma chave sua.",
-      };
+      return null;
     case "sem_chave":
       return {
         Icon: KeyIcon,
