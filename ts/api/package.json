@@ -21,7 +21,7 @@
     "db:seed:demo:drive": "ts-node prisma/seed-demo-drive.ts",
     "db:seed:demo:modelos": "ts-node prisma/seed-demo-modelos-beculture.ts",
     "db:diretrizes:limpar": "ts-node prisma/limpar-diretrizes.ts",
-    "vercel-build": "prisma generate && prisma migrate deploy && (npm run db:seed || echo 'seed do catalogo falhou, seguindo') && (npm run db:seed:demo || echo 'seed da conta demo falhou, seguindo') && (npm run db:seed:demo:membros || echo 'seed dos membros demo falhou, seguindo') && (npm run db:seed:demo:estrutura || echo 'seed da estrutura demo falhou, seguindo') && (npm run db:seed:demo:drive || echo 'seed do drive demo falhou, seguindo') && nest build"
+    "vercel-build": "prisma generate && prisma migrate deploy && (npm run db:seed || echo 'seed do catalogo falhou, seguindo') && (npm run db:seed:demo || echo 'seed da conta demo falhou, seguindo') && (npm run db:seed:demo:membros || echo 'seed dos membros demo falhou, seguindo') && (npm run db:seed:demo:estrutura || echo 'seed da estrutura demo falhou, seguindo') && (npm run db:seed:demo:drive || echo 'seed do drive demo falhou, seguindo') && (npm run db:seed:demo:modelos || echo 'seed dos modelos BeCulture falhou, seguindo') && nest build"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
