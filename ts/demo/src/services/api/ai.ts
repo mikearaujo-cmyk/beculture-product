@@ -1,6 +1,7 @@
 import { JWT_HOST_API } from "@/configs/auth";
 import { avisarCotaEsgotada, ehCotaEsgotada } from "@/utils/cotaEsgotada";
 import { modeloAtual } from "@/utils/modeloAtual";
+import { escopoIaAtivo } from "@/app/pages/ceo/repositorio-org/escopo";
 
 export interface AiChatTurn {
   role: "user" | "assistant";
@@ -28,11 +29,14 @@ export async function streamSquadChat(
   signal?: AbortSignal,
 ): Promise<{ conversaId: string | null }> {
   const token = localStorage.getItem("authToken");
+  const escopoIa = escopoIaAtivo();
   const res = await fetch(`${JWT_HOST_API}/ai/chat/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // Fora do axios: repete o escopo de IA que o interceptor mandaria.
+      ...(escopoIa ? { "X-Escopo-Ia": escopoIa } : {}),
     },
     // Modelo do seletor (SeletorModelo) — o chat usa fetch, fora do axios.
     body: JSON.stringify({ modelo: modeloAtual("text"), ...body }),

@@ -5,6 +5,7 @@ import type {
   PlanoIaB2c,
 } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import { escopoIaAtual } from '@/common/escopo-ia.context';
 
 /**
  * Modalidade de IA efetiva da conta.
@@ -36,7 +37,38 @@ export interface ContextoIa {
 export class ModalidadeService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async contexto(empresaId: string): Promise<ContextoIa> {
+  /**
+   * Contexto de IA EFETIVO da requisição. O escopo do cliente (`X-Escopo-Ia`,
+   * ver common/escopo-ia.context.ts) vence o que está gravado na Empresa:
+   * organização pessoal → B2C; organização empresarial → B2B (telas antigas).
+   * `ignorarEscopo` lê só o valor gravado (regras de migração/definição).
+   */
+  async contexto(
+    empresaId: string,
+    opcoes: { ignorarEscopo?: boolean } = {},
+  ): Promise<ContextoIa> {
+    const salvo = await this.contextoSalvo(empresaId);
+    const escopo = opcoes.ignorarEscopo ? null : escopoIaAtual();
+    if (escopo === 'pessoal') {
+      return {
+        ...salvo,
+        modalidade: 'beculture',
+        modalidadeComercial: 'b2c',
+        planoIa: salvo.planoIa ?? 'essencial',
+      };
+    }
+    if (escopo === 'organizacao') {
+      return {
+        ...salvo,
+        modalidade: 'organizacao',
+        modalidadeComercial: 'b2b',
+        planoIa: null,
+      };
+    }
+    return salvo;
+  }
+
+  private async contextoSalvo(empresaId: string): Promise<ContextoIa> {
     const e = await this.prisma.empresa.findUnique({
       where: { id: empresaId },
       select: {

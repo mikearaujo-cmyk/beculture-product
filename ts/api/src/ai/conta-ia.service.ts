@@ -186,7 +186,10 @@ export class ContaIaService {
     destino: { modalidadeIa: 'beculture' | 'organizacao'; planoIa?: PlanoIaB2c },
     reiniciarOnboarding = false,
   ) {
-    const ctx = await this.modalidade.contexto(empresaId);
+    // Migração mexe no que está GRAVADO na Empresa, não no escopo da tela.
+    const ctx = await this.modalidade.contexto(empresaId, {
+      ignorarEscopo: true,
+    });
     if (
       ctx.modalidade !== destino.modalidadeIa &&
       !MIGRACOES_PERMITIDAS[ctx.modalidade].includes(destino.modalidadeIa)

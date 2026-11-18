@@ -1,7 +1,10 @@
 import axios, { AxiosError, AxiosResponse } from "axios";
 import { JWT_HOST_API } from "@/configs/auth";
 import { repositorioPastaAtivo } from "@/app/pages/ceo/memoria-inventario";
-import { organizacaoAtivaId } from "@/app/pages/ceo/repositorio-org/escopo";
+import {
+  escopoIaAtivo,
+  organizacaoAtivaId,
+} from "@/app/pages/ceo/repositorio-org/escopo";
 import { sessaoLocalAtiva, tokenArmazenado } from "@/utils/sessaoLocal";
 import { kindDaRotaDeIa, modeloAtual } from "@/utils/modeloAtual";
 import { avisarCotaEsgotada, ehCotaEsgotada } from "@/utils/cotaEsgotada";
@@ -50,6 +53,9 @@ export const HEADER_REPOSITORIO = "X-Repositorio-Id";
  */
 export const HEADER_ORGANIZACAO = "X-Organizacao-Id";
 
+/** Escopo de IA: `pessoal` (B2C) ou `organizacao` (empresarial). */
+export const HEADER_ESCOPO_IA = "X-Escopo-Ia";
+
 /**
  * Injeta o repositório (contexto) ativo em toda requisição.
  *
@@ -71,6 +77,10 @@ axiosInstance.interceptors.request.use((config) => {
   if (organizacaoId && !config.headers.has(HEADER_ORGANIZACAO)) {
     config.headers.set(HEADER_ORGANIZACAO, organizacaoId);
   }
+  // Pessoal (B2C) ou empresarial (telas antigas): decide a modalidade de IA
+  // efetiva no servidor.
+  const escopoIa = escopoIaAtivo();
+  if (escopoIa) config.headers.set(HEADER_ESCOPO_IA, escopoIa);
 
   // O token vem do storage a CADA requisição, e não de `axios.defaults`. O
   // header em defaults só existia depois que `setSession` rodava, no efeito
@@ -132,7 +142,7 @@ axiosInstance.interceptors.response.use(
     }
 
     return Promise.reject(error.response.data || ERRO_SEM_RESPOSTA);
-  }
+  },
 );
 
 export default axiosInstance;

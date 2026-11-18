@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { HttpExceptionFilter } from './common/http-exception.filter';
+import { escopoIaMiddleware } from './common/escopo-ia.context';
 
 /**
  * Configuração compartilhada entre o bootstrap local (`main.ts`) e o
@@ -16,6 +17,8 @@ export function configureApp(app: INestApplication): void {
   // usam multer e não são afetados por isto.
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
+  // Depois dos body parsers: o contexto precisa envolver o handler.
+  app.use(escopoIaMiddleware);
 
   const config = app.get(ConfigService);
 
@@ -100,6 +103,7 @@ export function configureApp(app: INestApplication): void {
       "Authorization",
       "X-Repositorio-Id",
       "X-Organizacao-Id",
+      "X-Escopo-Ia",
     ],
   });
 

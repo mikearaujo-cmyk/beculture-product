@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import axios from "@/utils/axios";
+import { aoMudarEscopoIa } from "@/app/pages/ceo/repositorio-org/escopo";
 import type { AiModality, CatalogProvider } from "./aiCredential";
 
 /**
@@ -179,6 +180,11 @@ export function useResumoContaIa() {
     }
   }, []);
 
+  // Relê ao trocar entre organização pessoal (B2C) e empresarial: o mesmo
+  // endpoint devolve outra modalidade conforme o escopo (X-Escopo-Ia).
+  const [versaoEscopo, setVersaoEscopo] = useState(0);
+  useEffect(() => aoMudarEscopoIa(() => setVersaoEscopo((n) => n + 1)), []);
+
   useEffect(() => {
     let vivo = true;
     getResumoContaIa()
@@ -196,7 +202,7 @@ export function useResumoContaIa() {
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [versaoEscopo]);
 
   return { resumo, setResumo, carregando, erro, recarregar };
 }

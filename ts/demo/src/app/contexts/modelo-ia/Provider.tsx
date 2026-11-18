@@ -25,6 +25,7 @@ import {
   type ModelosConta,
 } from "@/services/api/modalidade";
 import { publicarModeloAtual } from "@/utils/modeloAtual";
+import { aoMudarEscopoIa } from "@/app/pages/ceo/repositorio-org/escopo";
 import { ModeloIaContext } from "./context";
 
 export function ModeloIaProvider({ children }: { children: ReactNode }) {
@@ -51,6 +52,10 @@ export function ModeloIaProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", aoFocar);
     return () => window.removeEventListener("focus", aoFocar);
   }, []);
+
+  // Trocar entre organização pessoal (B2C, com seletor) e empresarial (sem
+  // seletor) muda a resposta de /conta/modelos: relê na hora.
+  useEffect(() => aoMudarEscopoIa(() => setTentativa((n) => n + 1)), []);
 
   // Publica a seleção para quem está fora do React (interceptor do axios e
   // streaming do chat), que anexam o modelo às requisições de ação de IA.
